@@ -1,5 +1,5 @@
 use ratatui_textarea::TextArea;
-use crossterm::event::{Event, KeyCode};
+use crossterm::event::{Event, KeyCode, KeyModifiers, ModifierKeyCode};
 use ratatui::{DefaultTerminal, Frame };
 use sqlx_postgres::{PgPool, PgPoolOptions};
 use tokio::io::AsyncWriteExt;
@@ -26,7 +26,7 @@ impl<'a> App<'a> {
         }
     }
 
-    async fn _query(self, query: String) {
+    async fn query(&mut self, query: String) {
         let result = sqlx::query(query.as_str())
                 .fetch_all(&self._conn)
                 .await
@@ -40,25 +40,52 @@ impl<'a> App<'a> {
         });
     }
 
+    async fn handle_event(&mut self) -> bool {
+
+        if let Ok(event) = crossterm::event::read() {
+            let _ = match event {
+                    Event::Key(key) => {
+                        match key.code {
+                            KeyCode::Esc => {
+                                return true;
+                            },
+                            KeyCode::Char('s') => {
+                                match key.modifiers {
+                                    KeyModifiers::CONTROL => {
+                                        println!("control S");
+                                        // logln(format!("{:?}", self.textarea).as_str()).await;
+                                        let content = self.textarea.lines().join("\n");
+                                        logln(content.as_str()).await;
+                                        self.query(content).await;
+
+                                    },
+                                    _ => {
+                                        self.textarea.input(key);
+                                    }
+                                }
+                            },
+                            _ => {
+                                self.textarea.input(key);
+                            }
+                        }
+                    }
+                    _ => {}
+                };
+        }
+        false
+    }
+
     async fn run(&mut self) -> Result<(), anyhow::Error> {
         loop {
             self.draw();
-            
-            if let Ok(event) = crossterm::event::read() {
-            match event {
-                Event::Key(key) => {
-                    match key.code {
-                        KeyCode::Esc => {
-                            break Ok(());
-                        }
-                        _ => {
-                        self.textarea.input(key);
-                        }
-                    }
+            match self.handle_event().await {
+                true => {
+                    break Ok(());
                 }
-                _ => {}
+                false => {
+                }
             }
-            }
+            
         }
     }
 
