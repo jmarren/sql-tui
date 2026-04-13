@@ -133,12 +133,9 @@ impl<'a> App<'a> {
         });
     }
 
-    async fn handle_key(&mut self, key: KeyEvent)  {
+    async fn editor_handle_key(&mut self, key: KeyEvent) {
+
             match (&self.mode, key) {
-                (_, KeyEvent{ code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. }) => {
-                    // quit app
-                    self.should_quit = true;
-                },
                 (Mode::Insert, KeyEvent{ code: KeyCode::Esc,  .. }) => {
                     // set mode to visual
                     self.mode = Mode::Visual;
@@ -159,25 +156,81 @@ impl<'a> App<'a> {
                     self.mode = Mode::Insert;  
                     self.textarea.set_cursor_style(Style::new().not_reversed());
                 },
-                (Mode::Visual, key_event ) => {
-                    match key_event.code {
-                        KeyCode::Char('k') => {
+                (Mode::Visual, KeyEvent{ code, modifiers,  .. }) => {
+                    match (code, modifiers) {
+                        (KeyCode::Char('k'), _) => {
                             self.textarea.move_cursor(CursorMove::Up);
                         },
-                        KeyCode::Char('j') => {
+                        (KeyCode::Char('j'), KeyModifiers::CONTROL) => {
+                            self.focus = Section::Results;   
+                        },
+                        (KeyCode::Char('j'), _) => {
                             self.textarea.move_cursor(CursorMove::Down);
                         },
-                        KeyCode::Char('l') => {
+                        (KeyCode::Char('l'), _) => {
                             self.textarea.move_cursor(CursorMove::Forward);
                         },
-                        KeyCode::Char('h') => {
+                        (KeyCode::Char('h'), _) => {
                             self.textarea.move_cursor(CursorMove::Back);
                         },
-                        _ => {
-                        }
+                        _ => {}
                     }
                 }
             }
+    }
+
+    async fn results_handle_key(&mut self, key: KeyEvent) {
+            match key {
+                KeyEvent{ code, modifiers, ..} => {
+                    match (code, modifiers) {
+                        (KeyCode::Char('k'), KeyModifiers::CONTROL) => {
+                            self.focus = Section::Editor;   
+                        },
+                        (KeyCode::Char('k'), _) => {
+                            let mut curr = self.results.clone();
+                            let first = curr.remove(0);
+                            self.results = curr;
+                            self.results.push(first);
+                        },
+                        (KeyCode::Char('j'), _) => {
+                            if let Some(last) = self.results.pop() {
+                                let curr = self.results.clone();
+                                self.results = Vec::new();
+                                self.results.push(last);
+                                self.results.extend(curr);
+                            }
+                        },
+                        (KeyCode::Char('l'), _) => {
+                            // self.textarea.move_cursor(CursorMove::Forward);
+                        },
+                        (KeyCode::Char('h'), _) => {
+                            // self.textarea.move_cursor(CursorMove::Back);
+                        },
+                        _ => {}
+                    }
+                }
+            }
+
+    }
+
+    async fn handle_key(&mut self, key: KeyEvent)  {
+
+        match key {
+            KeyEvent{ code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. } => {
+                    // quit app
+                    self.should_quit = true;
+                    return;
+            },
+            _ => {},
+        }
+        match self.focus {
+            Section::Editor => {
+                self.editor_handle_key(key).await;
+            },
+            Section::Results => {
+                self.results_handle_key(key).await;
+            },
+        }
     }
     
 
