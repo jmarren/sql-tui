@@ -231,6 +231,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "colorize"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc17e449bc7854c50b943d113a98bc0e01dc6585d2c66eaa09ca645ebd8a7e62"
+
+[[package]]
 name = "compact_str"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1867,6 +1873,7 @@ version = "1.0.149"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
 dependencies = [
+ "indexmap",
  "itoa",
  "memchr",
  "serde",
@@ -2020,12 +2027,16 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "color-eyre",
+ "colorize",
  "crossterm",
  "ratatui",
  "ratatui-textarea",
  "sqlx",
  "sqlx-postgres",
  "tokio",
+ "tree-sitter",
+ "tree-sitter-highlight",
+ "tree-sitter-sequel",
 ]
 
 [[package]]
@@ -2229,6 +2240,12 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "streaming-iterator"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b2231b7c3057d5e4ad0156fb3dc807d900806020c5ffa3ee6ff2c8c76fb8520"
 
 [[package]]
 name = "stringprep"
@@ -2556,6 +2573,48 @@ dependencies = [
  "sharded-slab",
  "thread_local",
  "tracing-core",
+]
+
+[[package]]
+name = "tree-sitter"
+version = "0.26.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "887bd495d0582c5e3e0d8ece2233666169fa56a9644d172fc22ad179ab2d0538"
+dependencies = [
+ "cc",
+ "regex",
+ "regex-syntax",
+ "serde_json",
+ "streaming-iterator",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-highlight"
+version = "0.26.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ccde2b54a34b58313e69c02496a2a9ad38d59af79b196b5e1df063431752a7e0"
+dependencies = [
+ "regex",
+ "streaming-iterator",
+ "thiserror 2.0.18",
+ "tree-sitter",
+]
+
+[[package]]
+name = "tree-sitter-language"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
+
+[[package]]
+name = "tree-sitter-sequel"
+version = "0.3.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d198ad3c319c02e43c21efa1ec796b837afcb96ffaef1a40c1978fbdcec7d17"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
 ]
 
 [[package]]

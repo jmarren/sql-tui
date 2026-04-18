@@ -15,6 +15,11 @@ tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.8", features = [ "runtime-tokio" ] }
 sqlx-postgres = { version = "0.8.6", features = [ "chrono" ] }
 ratatui-textarea = "0.9.0"
+tree-sitter-sequel = "0.3.11"
+tree-sitter = "0.26.8"
+tree-sitter-highlight = "0.26.8"
+colorize = "0.1.0"
+# tree-sitter-highlight = "0.25.4"
 
 # Read the optimization guideline for more details: https://ratatui.rs/recipes/apps/release-your-app/#optimizations
 [profile.release]
