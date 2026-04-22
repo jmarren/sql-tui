@@ -1,0 +1,44 @@
+services:
+  primary:
+    image: postgres:18
+    environment:
+      POSTGRES_PASSWORD: password
+    volumes:
+      - pgdata_primary:/var/lib/postgresql/hammer-head 
+      - ./schema.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./primary.conf:/var/lib/postgresql/postgresql.conf
+      - ./primary_pg_hba.conf:/etc/postgresql/pg_hba.conf
+    command: ["postgres", "-c", "hba_file=/etc/postgresql/pg_hba.conf", "-c", "config_file=/var/lib/postgresql/postgresql.conf"]
+    ports:
+      - 5436:5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]  # Check if PostgreSQL is ready
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - all
+
+  standby:
+    build:
+      dockerfile: standby.Dockerfile
+    depends_on:
+      primary:
+        condition: service_healthy     # Wait until primary is healthy
+    environment:
+      POSTGRES_PASSWORD: password
+    volumes:
+      - pgdata_standby1:/home/pgdata
+      # - ./conf/standby1/postgresql.conf:/var/lib/postgresql/postgresql.conf
+    ports:
+      - 5437:5432
+    networks:
+      - all
+
+  
+volumes:
+  pgdata_primary:
+  pgdata_standby1:
+
+networks:
+  all:

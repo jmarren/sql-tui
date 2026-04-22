@@ -1,13 +1,12 @@
 
 use ratatui_textarea::{CursorMove, TextArea};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, style::{ Style}, widgets::{Block, Borders, Row, Table} };
+use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, macros::ratatui_core, style::Style, text::{ Span}, widgets::{Block, Borders, Row, Table} };
 use sqlx::{Column, Row as SqlxRow};
-use sqlx_postgres::{ PgPool, PgPoolOptions, PgRow, PgTypeInfo};
+use sqlx_postgres::{ PgColumn, PgPool, PgPoolOptions, PgRow, PgTypeInfo};
 use tokio::io::AsyncWriteExt;
 use tree_sitter_highlight::{Highlight, HighlightConfiguration, HighlightEvent, Highlighter};
-use std::{env, io::Write};
-use colorize::AnsiColor;
+use std::{env};
 // Import the colors for the global
 // use colorize::{BrightRed, Blue};
 enum Mode {
@@ -21,29 +20,147 @@ enum Section {
 }
 
 
-enum Color {
-    Blue,
-    Red,
-    Yellow,
+enum TextColor {
+    BurntOrange,
+    Cyan,
+    Magenta,
+    Gray,
+    Blue1,
+    Todo,
+    Todo2,
 }
 
-impl Color {
-    fn highlight(&self, text: String) -> String {
+impl TextColor {
+    fn highlight<'a>(&self, text: String) -> Span<'a> {
         match &self {
-            Color::Blue => {
-                text.blue()
+            TextColor::BurntOrange => {
+                let style =  Style::default().fg(ratatui_core::style::Color::Rgb(240, 120, 100));
+                Span::raw(text).style(style).clone()
             },
-            Color::Red => {
-                text.red()
+            TextColor::Cyan => {
+                let style =  Style::default().fg(ratatui_core::style::Color::Cyan);
+                Span::raw(text).style(style).clone()
             }
-            Color::Yellow => {
-                text.yellow()
-            }
+            TextColor::Magenta => {
+                let style =  Style::default().fg(ratatui_core::style::Color::Magenta);
+                Span::raw(text).style(style).clone()
+            },
+            TextColor::Gray => {
+                let style =  Style::default().fg(ratatui_core::style::Color::Gray);
+                Span::raw(text).style(style).clone()
+            },
+            TextColor::Blue1 => {
+                let style =  Style::default().fg(ratatui_core::style::Color::Rgb(103, 85, 230));
+                Span::raw(text).style(style).clone()
+            },
+            TextColor::Todo => {
+                let style =  Style::default().fg(ratatui_core::style::Color::Rgb(90, 25, 210));
+                Span::raw(text).style(style).clone()
+            },
+            TextColor::Todo2 => {
+                let style =  Style::default().fg(ratatui_core::style::Color::Rgb(20, 25, 180));
+                Span::raw(text).style(style).clone()
+            },
+
         }
     }
 }
 
+struct HighlightParser<'a>{
+    pub highlighter: tree_sitter_highlight::Highlighter,
+    pub sql_config: HighlightConfiguration,
+    pub spans: Vec<Span<'a>>,
+}
 
+impl <'a> HighlightParser<'a> {
+    fn new() -> HighlightParser<'a>  {
+      let mut parser = tree_sitter::Parser::new();
+      let language = tree_sitter_sequel::LANGUAGE;
+      parser
+          .set_language(&language.into())
+          .expect("Error loading Sql parser");
+     
+     let hightlighter = Highlighter::new();
+     let sql_language = tree_sitter_sequel::LANGUAGE.into();
+
+     let mut sql_config = HighlightConfiguration::new(
+                sql_language,
+                "sql",
+                tree_sitter_sequel::HIGHLIGHTS_QUERY,
+                "",
+                "",
+         ).unwrap();
+
+
+      sql_config.configure(&HIGHLIGHT_NAMES);
+        
+        HighlightParser { 
+            highlighter: hightlighter,
+            sql_config: sql_config,
+            spans: Vec::<Span>::new(),
+        }
+    }
+
+    pub fn highlight(&mut self, text: String) {
+            // clear current spans
+            self.spans.clear();
+
+            // get highlights
+            let highlights = self.highlighter.highlight(
+                &self.sql_config,
+                text.as_bytes(),
+                None,
+                |_| None
+            ).unwrap();
+    
+           // declar spans and curr_color
+           let mut spans = Vec::<Span>::new();
+           let mut curr_color = TextColor::BurntOrange;
+
+           // iterate through hightlights
+           // on highlight start => set the curr_color
+           // on source => apply the curr_color to get the styled span 
+           //              and push it into spans
+           for event in highlights {
+               match event.unwrap() {
+                   HighlightEvent::Source {start, end} => {
+                       let target_str = text[start .. end].to_string().clone();
+                       let span = curr_color.highlight(target_str.clone()).clone();
+                       spans.push(span);
+                   },
+                   HighlightEvent::HighlightStart(s) => {
+                       match s {
+                           Highlight(33) => {
+                               curr_color = TextColor::BurntOrange;
+                           },
+                           Highlight(14) => {
+                               curr_color = TextColor::Cyan;
+                           },
+                           Highlight(38) => {
+                               curr_color = TextColor::Magenta;
+                           },
+                           Highlight(46) => {
+                               curr_color = TextColor::Blue1;
+                           },
+                           Highlight(48) => {
+                               curr_color = TextColor::Todo;
+                           },
+                           Highlight(40) => {
+                               curr_color = TextColor::Todo2;
+                           },
+                           _ => {
+                                println!("missing color for s = {:?}", s);
+                                curr_color = TextColor::Gray;
+                           }
+                       }
+                   },
+                   HighlightEvent::HighlightEnd => {},
+               }
+            }
+           // set spans to the new styled spans
+           self.spans = spans;
+    }
+}
 
 struct App<'a> {
     _conn: PgPool,
@@ -54,20 +171,49 @@ struct App<'a> {
     mode: Mode,
     should_quit: bool,
     focus: Section,
+    highlighter: HighlightParser<'a>,
+    tables: Vec<String>,
 }
 
+ 
+static TEXT_TYPE: &PgTypeInfo = &PgTypeInfo::with_name("Text");
+static INT4_TYPE: &PgTypeInfo = &PgTypeInfo::with_name("Int4");
+static NAME_TYPE: &PgTypeInfo = &PgTypeInfo::with_name("Name");
 
 fn is_text(type_info: &PgTypeInfo) -> bool {
-    let text_type = PgTypeInfo::with_name("Text");
-    type_info.type_eq(&text_type)
+    type_info.type_eq(TEXT_TYPE)
 }
 
 fn is_int4(type_info: &PgTypeInfo) -> bool {
-    let int4_type = PgTypeInfo::with_name("Int4");
-    type_info.type_eq(&int4_type)
+    type_info.type_eq(INT4_TYPE)
 }
 
+fn is_name(type_info: &PgTypeInfo) -> bool {
+    type_info.type_eq(NAME_TYPE)
+}
 
+// converts a cell to a String depending on its type_info
+fn stringify_type_info(type_info: &PgTypeInfo, col: &PgColumn, row: &PgRow) -> String {
+            let mut out = String::new();
+
+            // simply return if text or name
+            if is_text(type_info) || is_name(type_info) {
+                out = row.get(col.name());
+                return out
+            }
+            
+            // if int4, convert to string first
+            if is_int4(type_info) {
+                let data: i32 = row.get(col.name());
+                let data_str_res = data.to_string();
+                return data_str_res;
+            } 
+
+            out
+}   
+
+
+// converts a row to a vec of Strings depending on the type of corresponding columns
 fn stringify(row: &PgRow) -> Vec<String> {
 
         let mut row_strs: Vec<String> = Vec::new();
@@ -76,63 +222,77 @@ fn stringify(row: &PgRow) -> Vec<String> {
         for col in cols {
 
             let type_info = col.type_info();
-        
-            // if text, just push
-            if is_text(type_info) {
-                row_strs.push(row.get(col.name()));
-            }
-            
-            // if int4, convert to string, then push
-            if is_int4(type_info) {
-                let data: i32 = row.get(col.name());
-                let data_str_res = data.to_string();
-                row_strs.push(data_str_res);
-            }  
+
+            row_strs.push(stringify_type_info(type_info, col, row));
         }
         row_strs
 }
 
 
+
 impl<'a> App<'a> {
     async fn new(terminal: &'a mut DefaultTerminal) -> App<'a> {
-
-        let textarea = TextArea::default();
-        let db_url = get_db_url();
-        let pool = init_db(db_url).await;
-        App{
-            _conn: pool,
-            textarea: textarea,
+        let mut app = App{
+            _conn: init_db(get_db_url()).await,
+            textarea: TextArea::default(),
             term: terminal,
             results: Vec::new(),
             result_columns: Vec::new(),
             mode: Mode::Visual,
             should_quit: false,
             focus: Section::Editor,
-        }
+            highlighter: HighlightParser::new(),
+            tables: Vec::<String>::new(),
+        };
+    
+        // get user defined table names and set them in app.tables
+        let (_, table_names_row) = app.query(TABLES_QUERY).await;
+
+        let mut table_names = Vec::<String>::new();
+        table_names_row.iter().for_each(| item | {
+            table_names.push(item[0].clone());
+        });
+        app.tables = table_names;
+    
+        // return the app
+        app
     }
 
-    async fn query(&mut self, query: String) {
-        let result = sqlx::query(query.as_str())
+    // perform the provided query and set result_columns and results
+    async fn user_query(&mut self, query: String) {
+        (self.result_columns, self.results) = self.query(query.as_str()).await;
+    }
+
+    // perform query and return (result_columns, result_rows) (converted to strings)
+    async fn query(&mut self, query: &str) -> (Vec<String>, Vec<Vec<String>>) {
+        // perform the query
+        let result = sqlx::query(query)
                 .fetch_all(&self._conn)
                 .await
                 .expect("failed to execute query");
          
         
         let mut result_strs: Vec<Vec<String>> = Vec::new();
+        let mut result_cols = Vec::<String>::new();
 
+        // use the column names from the first row as result_columns
         if result.len() > 0 {
-            self.result_columns = result[0].columns().iter().map(| col | {
+            result_cols = result[0].columns().iter().map(| col | {
                     col.name().to_string()
             }).collect();
         }
-
+    
+        // push stringified rows into result_strs
         for row in result {
             result_strs.push(stringify(&row));
         }
-        self.results = result_strs;
+        
+        (result_cols, result_strs)
+
     }
 
     fn draw(&mut self) {
+
         let _ = self.term.draw(| frame: &mut Frame |  {
     
         // create layout
@@ -168,11 +328,16 @@ impl<'a> App<'a> {
             .borders(Borders::ALL);
         
         frame.render_widget(&editor, layout[0]);
-        frame.render_widget(&self.textarea, editor.inner(layout[0]));
         frame.render_widget(&b, layout[1]);
+
+        let line = ratatui::text::Line::from(self.highlighter.spans.clone());
+        frame.render_widget(line, b.inner(layout[0]));
         frame.render_widget(&results_table, b.inner(layout[1]));
+
         });
     }
+
+
 
     async fn editor_handle_key(&mut self, key: KeyEvent) {
 
@@ -186,128 +351,13 @@ impl<'a> App<'a> {
                 (_, KeyEvent{ code: KeyCode::Char('s'), modifiers: KeyModifiers::CONTROL, .. }) => {
                     // set content and perform query
                     let content = self.textarea.lines().join("\n");
-
-                     let mut parser = tree_sitter::Parser::new();
-                     let language = tree_sitter_sequel::LANGUAGE;
-                     parser
-                         .set_language(&language.into())
-                         .expect("Error loading Sql parser");
-                     let tree = parser.parse(&content, None).unwrap();
-                     let mut highlighter = Highlighter::new();
-                     let sql_language = tree_sitter_sequel::LANGUAGE.into();
-                     let mut sql_config = HighlightConfiguration::new(
-                                sql_language,
-                                "sql",
-                                tree_sitter_sequel::HIGHLIGHTS_QUERY,
-                                "",
-                                "",
-                         ).unwrap();
-
-
-                     let highlight_names = vec![
-                            "attribute",
-                            "boolean",
-                            "carriage-return",
-                            "comment",
-                            "comment.documentation",
-                            "constant",
-                            "constant.builtin",
-                            "constructor",
-                            "constructor.builtin",
-                            "embedded",
-                            "error",
-                            "escape",
-                            "function",
-                            "function.builtin",
-                            "keyword",
-                            "markup",
-                            "markup.bold",
-                            "markup.heading",
-                            "markup.italic",
-                            "markup.link",
-                            "markup.link.url",
-                            "markup.list",
-                            "markup.list.checked",
-                            "markup.list.numbered",
-                            "markup.list.unchecked",
-                            "markup.list.unnumbered",
-                            "markup.quote",
-                            "markup.raw",
-                            "markup.raw.block",
-                            "markup.raw.inline",
-                            "markup.strikethrough",
-                            "module",
-                            "number",
-                            "operator",
-                            "property",
-                            "property.builtin",
-                            "punctuation",
-                            "punctuation.bracket",
-                            "punctuation.delimiter",
-                            "punctuation.special",
-                            "string",
-                            "string.escape",
-                            "string.regexp",
-                            "string.special",
-                            "string.special.symbol",
-                            "tag",
-                            "type",
-                            "type.builtin",
-                            "variable",
-                            "variable.builtin",
-                            "variable.member",
-                            "variable.parameter",
-                        ];
-
-                    let input_text = "SELECT * FROM users;";
-
-                    sql_config.configure(&highlight_names);
-
-                    let highlights = highlighter.highlight(
-                        &sql_config,
-                        input_text.as_bytes(),
-                        None,
-                        |_| None
-                    ).unwrap();
-
-                    let mut out = String::new();
-
-                    let mut curr_color = Color::Blue;
-
-                    for event in highlights {
-                        // println!("event = {:?}", event);
-                        match event.unwrap() {
-                            HighlightEvent::Source {start, end} => {
-                                let target_str = input_text[start .. end].to_string().clone();
-                                out.push_str(curr_color.highlight(target_str.clone()).as_str());
-                            },
-                            HighlightEvent::HighlightStart(s) => {
-                                match s {
-                                    Highlight(33) => {
-                                        curr_color = Color::Blue;
-                                    },
-                                    Highlight(14) => {
-                                        curr_color = Color::Red;
-                                    },
-                                    Highlight(38) => {
-                                        curr_color = Color::Yellow;
-                                    },
-                                    _ => {}
-                                }
-                            },
-                            HighlightEvent::HighlightEnd => {
-                            },
-                        }
-                    }
-
-
-                     assert!(!tree.root_node().has_error());
-                     println!("{}", out);
-                     self.query(content).await;
+                     self.user_query(content).await;
                 },
                 (Mode::Insert, _) => {
                     // insert character
+                    // input the key
                     self.textarea.input(key);
+                    self.highlighter.highlight(self.textarea.lines().join("\n"));
                 },
                 (Mode::Visual, KeyEvent{ code: KeyCode::Char('i'), ..}) => {
                     // set mode to insert
@@ -488,46 +538,63 @@ pub async fn init_db(db_url: String) -> PgPool {
 
 
 
-// struct Grid {
-//     cols: usize,
-//     rows: usize,
-// }
-//
-// impl Widget for Grid {
-//     fn render(self, area: Rect, buf: &mut Buffer) {
-//         let col_constraints = (0..self.cols).map(|_| Constraint::Length(9));
-//         let row_constraints = (0..self.rows).map(|_| Constraint::Length(3));
-//         let horizontal = Layout::horizontal(col_constraints).spacing(1);
-//         let vertical = Layout::vertical(row_constraints).spacing(1);
-//
-//         let rows = vertical.split(area);
-//         let cells = rows.iter().flat_map(|&row| horizontal.split(row).to_vec());
-//
-//         for (i, cell) in cells.enumerate() {
-//             Paragraph::new(format!("Area {:02}", i + 1))
-//                 .block(Block::bordered())
-//                 .render(cell, buf);
-//         }
-//     }
-// }
-//
-// fn render(frame: &mut Frame) {
-//
-//     // let inner = Block::default().title("hi").borders(Borders::ALL);
-//     //
-//     // let b = Block::default()
-//     //     .title("Sqltui")
-//     //     .borders(Borders::ALL)
-//     //     .blue();
-//     //
-//     // let inner_area = b.inner(frame.area());
-//     //
-//     // frame.render_widget(b, frame.area());
-//     // frame.render_widget(inner, inner_area);
-//     frame.render_widget(Grid{ rows: 10, cols: 10}, frame.area());
-// }
+
+static TABLES_QUERY: &str  = "SELECT table_name FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog', 'information_schema');";
 
 
 
-
+static HIGHLIGHT_NAMES: [&str; 52] = [
+                        "attribute",
+                        "boolean",
+                        "carriage-return",
+                        "comment",
+                        "comment.documentation",
+                        "constant",
+                        "constant.builtin",
+                        "constructor",
+                        "constructor.builtin",
+                        "embedded",
+                        "error",
+                        "escape",
+                        "function",
+                        "function.builtin",
+                        "keyword",
+                        "markup",
+                        "markup.bold",
+                        "markup.heading",
+                        "markup.italic",
+                        "markup.link",
+                        "markup.link.url",
+                        "markup.list",
+                        "markup.list.checked",
+                        "markup.list.numbered",
+                        "markup.list.unchecked",
+                        "markup.list.unnumbered",
+                        "markup.quote",
+                        "markup.raw",
+                        "markup.raw.block",
+                        "markup.raw.inline",
+                        "markup.strikethrough",
+                        "module",
+                        "number",
+                        "operator",
+                        "property",
+                        "property.builtin",
+                        "punctuation",
+                        "punctuation.bracket",
+                        "punctuation.delimiter",
+                        "punctuation.special",
+                        "string",
+                        "string.escape",
+                        "string.regexp",
+                        "string.special",
+                        "string.special.symbol",
+                        "tag",
+                        "type",
+                        "type.builtin",
+                        "variable",
+                        "variable.builtin",
+                        "variable.member",
+                        "variable.parameter",
+    ];
 
