@@ -1,17 +1,16 @@
+mod log;
 mod styles;
 use styles::{Styles};
 mod pgtype;
 mod highlight;
+mod db;
 
 use ratatui_textarea::{CursorMove, TextArea};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, style::Style, text::{Line, Span}, widgets::{Block, Borders, Paragraph, Row, Table} };
 use sqlx::{Column, Row as SqlxRow};
-use sqlx_postgres::{ PgPool, PgPoolOptions};
-use tokio::io::AsyncWriteExt;
-use std::{env};
-// Import the colors for the global
-// use colorize::{BrightRed, Blue};
+use sqlx_postgres::{ PgPool};
+
 enum Mode {
     Insert,
     Visual,
@@ -30,7 +29,8 @@ enum SideTab {
 
 
 struct App<'a> {
-    _conn: PgPool,
+    // _conn: PgPool,
+    db: db::Db,
     textarea: TextArea<'a>,
     term: &'a mut DefaultTerminal,
     result_columns: Vec<String>,
@@ -49,8 +49,13 @@ struct App<'a> {
 
 impl<'a> App<'a> {
     async fn new(terminal: &'a mut DefaultTerminal) -> App<'a> {
-        let mut app = App{
-            _conn: init_db(get_db_url()).await,
+    
+        let mut db = db::Db::new().await;
+    
+        let table_names = db.query_table_names().await;
+
+        App{
+            db: db,
             textarea: TextArea::default(),
             term: terminal,
             results: Vec::new(),
@@ -59,56 +64,17 @@ impl<'a> App<'a> {
             should_quit: false,
             focus: Section::Editor,
             highlighter: highlight::HighlightParser::new(),
-            tables: Vec::<String>::new(),
+            tables: table_names,
             side_tab: SideTab::Editor,
             styles: Styles::new(),
-        };
-    
-        // get user defined table names and set them in app.tables
-        let (_, table_names_row) = app.query(TABLES_QUERY).await;
-
-        let mut table_names = Vec::<String>::new();
-        table_names_row.iter().for_each(| item | {
-            table_names.push(item[0].clone());
-        });
-        app.tables = table_names;
-    
-        // return the app
-        app
+        }
     }
 
     // perform the provided query and set result_columns and results
     async fn user_query(&mut self, query: String) {
-        (self.result_columns, self.results) = self.query(query.as_str()).await;
+        (self.result_columns, self.results) = self.db.query(query.as_str()).await;
     }
 
-    // perform query and return (result_columns, result_rows) (converted to strings)
-    async fn query(&mut self, query: &str) -> (Vec<String>, Vec<Vec<String>>) {
-        // perform the query
-        let result = sqlx::query(query)
-                .fetch_all(&self._conn)
-                .await
-                .expect("failed to execute query");
-         
-        
-        let mut result_strs: Vec<Vec<String>> = Vec::new();
-        let mut result_cols = Vec::<String>::new();
-
-        // use the column names from the first row as result_columns
-        if result.len() > 0 {
-            result_cols = result[0].columns().iter().map(| col | {
-                    col.name().to_string()
-            }).collect();
-        }
-    
-        // push stringified rows into result_strs
-        for row in result {
-            result_strs.push(pgtype::stringify(&row));
-        }
-        
-        (result_cols, result_strs)
-
-    }
 
     fn draw(&mut self) {
 
@@ -356,46 +322,5 @@ pub async fn app(terminal: &mut DefaultTerminal) -> Result<(), anyhow::Error> {
 }
 
 
-async fn logln(msg: &str) {
-    let mut file = tokio::fs::OpenOptions::new()
-        .append(true)
-        .open("log.txt")
-        .await
-        .expect("failed to open log file");
-        
-    // push a newline
-    let mut msg_string = msg.to_string();
-    msg_string.push('\n');
-    let _ = file.write_all(msg_string.as_bytes()).await;
-
-}
-
-
-
-
-fn get_db_url() -> String {
-        env::var("DB_URL").expect("DB_URL must be set")
-}
-
-
-pub async fn init_db(db_url: String) -> PgPool {
-    let logval = format!("db_url = {:?}", db_url);
-    tokio::io::stdout().write_all(logval.as_bytes()).await.expect("failed to write to stdout");
-    tokio::io::stdout().flush().await.expect("failed to flush stdout");
-    // std::io::stdout().flush().unwrap();
-    // std::io::Stdout::flush().await;
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(db_url.as_str())
-        .await
-        .expect("failed to connect to db");
-    pool
-
-}
-
-
-
-
-static TABLES_QUERY: &str  = "SELECT table_name FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog', 'information_schema');";
 
 
