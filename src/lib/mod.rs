@@ -1,11 +1,14 @@
+mod styles;
+use styles::{Styles};
+mod pgtype;
+mod highlight;
 
 use ratatui_textarea::{CursorMove, TextArea};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, macros::ratatui_core, style::Style, text::{ Span}, widgets::{Block, Borders, Row, Table} };
+use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, style::Style, text::{Line, Span}, widgets::{Block, Borders, Paragraph, Row, Table} };
 use sqlx::{Column, Row as SqlxRow};
-use sqlx_postgres::{ PgColumn, PgPool, PgPoolOptions, PgRow, PgTypeInfo};
+use sqlx_postgres::{ PgPool, PgPoolOptions};
 use tokio::io::AsyncWriteExt;
-use tree_sitter_highlight::{Highlight, HighlightConfiguration, HighlightEvent, Highlighter};
 use std::{env};
 // Import the colors for the global
 // use colorize::{BrightRed, Blue};
@@ -19,148 +22,12 @@ enum Section {
     Results,
 }
 
-
-enum TextColor {
-    BurntOrange,
-    Cyan,
-    Magenta,
-    Gray,
-    Blue1,
-    Todo,
-    Todo2,
+enum SideTab {
+    Editor,
+    Tables,
 }
 
-impl TextColor {
-    fn highlight<'a>(&self, text: String) -> Span<'a> {
-        match &self {
-            TextColor::BurntOrange => {
-                let style =  Style::default().fg(ratatui_core::style::Color::Rgb(240, 120, 100));
-                Span::raw(text).style(style).clone()
-            },
-            TextColor::Cyan => {
-                let style =  Style::default().fg(ratatui_core::style::Color::Cyan);
-                Span::raw(text).style(style).clone()
-            }
-            TextColor::Magenta => {
-                let style =  Style::default().fg(ratatui_core::style::Color::Magenta);
-                Span::raw(text).style(style).clone()
-            },
-            TextColor::Gray => {
-                let style =  Style::default().fg(ratatui_core::style::Color::Gray);
-                Span::raw(text).style(style).clone()
-            },
-            TextColor::Blue1 => {
-                let style =  Style::default().fg(ratatui_core::style::Color::Rgb(103, 85, 230));
-                Span::raw(text).style(style).clone()
-            },
-            TextColor::Todo => {
-                let style =  Style::default().fg(ratatui_core::style::Color::Rgb(90, 25, 210));
-                Span::raw(text).style(style).clone()
-            },
-            TextColor::Todo2 => {
-                let style =  Style::default().fg(ratatui_core::style::Color::Rgb(20, 25, 180));
-                Span::raw(text).style(style).clone()
-            },
 
-        }
-    }
-}
-
-struct HighlightParser<'a>{
-    pub highlighter: tree_sitter_highlight::Highlighter,
-    pub sql_config: HighlightConfiguration,
-    pub spans: Vec<Span<'a>>,
-}
-
-impl <'a> HighlightParser<'a> {
-    fn new() -> HighlightParser<'a>  {
-      let mut parser = tree_sitter::Parser::new();
-      let language = tree_sitter_sequel::LANGUAGE;
-      parser
-          .set_language(&language.into())
-          .expect("Error loading Sql parser");
-     
-     let hightlighter = Highlighter::new();
-     let sql_language = tree_sitter_sequel::LANGUAGE.into();
-
-     let mut sql_config = HighlightConfiguration::new(
-                sql_language,
-                "sql",
-                tree_sitter_sequel::HIGHLIGHTS_QUERY,
-                "",
-                "",
-         ).unwrap();
-
-
-      sql_config.configure(&HIGHLIGHT_NAMES);
-        
-        HighlightParser { 
-            highlighter: hightlighter,
-            sql_config: sql_config,
-            spans: Vec::<Span>::new(),
-        }
-    }
-
-    pub fn highlight(&mut self, text: String) {
-            // clear current spans
-            self.spans.clear();
-
-            // get highlights
-            let highlights = self.highlighter.highlight(
-                &self.sql_config,
-                text.as_bytes(),
-                None,
-                |_| None
-            ).unwrap();
-    
-           // declar spans and curr_color
-           let mut spans = Vec::<Span>::new();
-           let mut curr_color = TextColor::BurntOrange;
-
-           // iterate through hightlights
-           // on highlight start => set the curr_color
-           // on source => apply the curr_color to get the styled span 
-           //              and push it into spans
-           for event in highlights {
-               match event.unwrap() {
-                   HighlightEvent::Source {start, end} => {
-                       let target_str = text[start .. end].to_string().clone();
-                       let span = curr_color.highlight(target_str.clone()).clone();
-                       spans.push(span);
-                   },
-                   HighlightEvent::HighlightStart(s) => {
-                       match s {
-                           Highlight(33) => {
-                               curr_color = TextColor::BurntOrange;
-                           },
-                           Highlight(14) => {
-                               curr_color = TextColor::Cyan;
-                           },
-                           Highlight(38) => {
-                               curr_color = TextColor::Magenta;
-                           },
-                           Highlight(46) => {
-                               curr_color = TextColor::Blue1;
-                           },
-                           Highlight(48) => {
-                               curr_color = TextColor::Todo;
-                           },
-                           Highlight(40) => {
-                               curr_color = TextColor::Todo2;
-                           },
-                           _ => {
-                                println!("missing color for s = {:?}", s);
-                                curr_color = TextColor::Gray;
-                           }
-                       }
-                   },
-                   HighlightEvent::HighlightEnd => {},
-               }
-            }
-           // set spans to the new styled spans
-           self.spans = spans;
-    }
-}
 
 struct App<'a> {
     _conn: PgPool,
@@ -171,63 +38,13 @@ struct App<'a> {
     mode: Mode,
     should_quit: bool,
     focus: Section,
-    highlighter: HighlightParser<'a>,
+    highlighter: highlight::HighlightParser<'a>,
     tables: Vec<String>,
+    side_tab: SideTab,
+    styles: Styles,
 }
 
  
-static TEXT_TYPE: &PgTypeInfo = &PgTypeInfo::with_name("Text");
-static INT4_TYPE: &PgTypeInfo = &PgTypeInfo::with_name("Int4");
-static NAME_TYPE: &PgTypeInfo = &PgTypeInfo::with_name("Name");
-
-fn is_text(type_info: &PgTypeInfo) -> bool {
-    type_info.type_eq(TEXT_TYPE)
-}
-
-fn is_int4(type_info: &PgTypeInfo) -> bool {
-    type_info.type_eq(INT4_TYPE)
-}
-
-fn is_name(type_info: &PgTypeInfo) -> bool {
-    type_info.type_eq(NAME_TYPE)
-}
-
-// converts a cell to a String depending on its type_info
-fn stringify_type_info(type_info: &PgTypeInfo, col: &PgColumn, row: &PgRow) -> String {
-            let mut out = String::new();
-
-            // simply return if text or name
-            if is_text(type_info) || is_name(type_info) {
-                out = row.get(col.name());
-                return out
-            }
-            
-            // if int4, convert to string first
-            if is_int4(type_info) {
-                let data: i32 = row.get(col.name());
-                let data_str_res = data.to_string();
-                return data_str_res;
-            } 
-
-            out
-}   
-
-
-// converts a row to a vec of Strings depending on the type of corresponding columns
-fn stringify(row: &PgRow) -> Vec<String> {
-
-        let mut row_strs: Vec<String> = Vec::new();
-        let cols = row.columns();
-    
-        for col in cols {
-
-            let type_info = col.type_info();
-
-            row_strs.push(stringify_type_info(type_info, col, row));
-        }
-        row_strs
-}
-
 
 
 impl<'a> App<'a> {
@@ -241,8 +58,10 @@ impl<'a> App<'a> {
             mode: Mode::Visual,
             should_quit: false,
             focus: Section::Editor,
-            highlighter: HighlightParser::new(),
+            highlighter: highlight::HighlightParser::new(),
             tables: Vec::<String>::new(),
+            side_tab: SideTab::Editor,
+            styles: Styles::new(),
         };
     
         // get user defined table names and set them in app.tables
@@ -284,7 +103,7 @@ impl<'a> App<'a> {
     
         // push stringified rows into result_strs
         for row in result {
-            result_strs.push(stringify(&row));
+            result_strs.push(pgtype::stringify(&row));
         }
         
         (result_cols, result_strs)
@@ -293,17 +112,47 @@ impl<'a> App<'a> {
 
     fn draw(&mut self) {
 
+        let tab_names = ["editor", "tables"];
+        let active_tab_idx = match self.side_tab {
+            SideTab::Editor => 0,
+            SideTab::Tables => 1,
+        };
+        let spans_vec: Vec<Line> = tab_names.iter().enumerate().map(|(i, name)| {
+            let style = if i == active_tab_idx {
+                self.styles.active_tab
+            } else {
+                self.styles.inactive_tab
+            };
+            Line::from(Span::styled(format!(" {} ", name), style))
+        }).collect();
+
         let _ = self.term.draw(| frame: &mut Frame |  {
-    
+
+        // outer horizontal split: narrow tab bar on left, main content on right
+        let h_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .margin(2)
+            .constraints(vec![
+                Constraint::Length(10),
+                Constraint::Min(0),
+            ])
+            .split(frame.area());
+
+        // render side tab bar
+        let tab_block = Block::default().borders(Borders::ALL);
+        let tab_inner = tab_block.inner(h_layout[0]);
+        frame.render_widget(&tab_block, h_layout[0]);
+        let tab_list = Paragraph::new(spans_vec).block(Block::default());
+        frame.render_widget(tab_list, tab_inner);
+
         // create layout
         let layout = Layout::default()
             .direction(Direction::Vertical)
-            .margin(4)
-            .constraints(vec![ 
+            .constraints(vec![
                 Constraint::Percentage(50),
                 Constraint::Percentage(50)
             ])
-            .split(frame.area());
+            .split(h_layout[1]);
 
         let mut rows = Vec::new();
 
@@ -321,17 +170,17 @@ impl<'a> App<'a> {
         let b = Block::default()
             .title("results")
             .borders(Borders::ALL);
-        
+
         // create editor block
         let editor = Block::default()
             .title("sql editor")
             .borders(Borders::ALL);
-        
+
         frame.render_widget(&editor, layout[0]);
         frame.render_widget(&b, layout[1]);
 
-        let line = ratatui::text::Line::from(self.highlighter.spans.clone());
-        frame.render_widget(line, b.inner(layout[0]));
+        let line = Line::from(self.highlighter.spans.clone());
+        frame.render_widget(line, editor.inner(layout[0]));
         frame.render_widget(&results_table, b.inner(layout[1]));
 
         });
@@ -450,6 +299,14 @@ impl<'a> App<'a> {
                     self.should_quit = true;
                     return;
             },
+            // Tab cycles side tabs
+            KeyEvent{ code: KeyCode::Tab, .. } => {
+                self.side_tab = match self.side_tab {
+                    SideTab::Editor => SideTab::Tables,
+                    SideTab::Tables => SideTab::Editor,
+                };
+                return;
+            },
             _ => {},
         }
     
@@ -541,60 +398,4 @@ pub async fn init_db(db_url: String) -> PgPool {
 
 static TABLES_QUERY: &str  = "SELECT table_name FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog', 'information_schema');";
 
-
-
-static HIGHLIGHT_NAMES: [&str; 52] = [
-                        "attribute",
-                        "boolean",
-                        "carriage-return",
-                        "comment",
-                        "comment.documentation",
-                        "constant",
-                        "constant.builtin",
-                        "constructor",
-                        "constructor.builtin",
-                        "embedded",
-                        "error",
-                        "escape",
-                        "function",
-                        "function.builtin",
-                        "keyword",
-                        "markup",
-                        "markup.bold",
-                        "markup.heading",
-                        "markup.italic",
-                        "markup.link",
-                        "markup.link.url",
-                        "markup.list",
-                        "markup.list.checked",
-                        "markup.list.numbered",
-                        "markup.list.unchecked",
-                        "markup.list.unnumbered",
-                        "markup.quote",
-                        "markup.raw",
-                        "markup.raw.block",
-                        "markup.raw.inline",
-                        "markup.strikethrough",
-                        "module",
-                        "number",
-                        "operator",
-                        "property",
-                        "property.builtin",
-                        "punctuation",
-                        "punctuation.bracket",
-                        "punctuation.delimiter",
-                        "punctuation.special",
-                        "string",
-                        "string.escape",
-                        "string.regexp",
-                        "string.special",
-                        "string.special.symbol",
-                        "tag",
-                        "type",
-                        "type.builtin",
-                        "variable",
-                        "variable.builtin",
-                        "variable.member",
-                        "variable.parameter",
-    ];
 
