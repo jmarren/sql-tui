@@ -2,9 +2,13 @@ use std::env;
 
 use sqlx::{Column, Row};
 use sqlx_postgres::{PgPool, PgPoolOptions};
-use tokio::io::AsyncWriteExt;
-
 use crate::lib::pgtype;
+
+static DB_URL_VAR_NAME: &str = "DB_URL";
+static DB_URL_ERR: &str = "DB_URL must be set";
+static DB_CONNECT_ERR: &str = "failed to connect to db";
+static QUERY_FAILED: &str = "failed to execute query";
+static TABLES_QUERY: &str  = "SELECT table_name FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog', 'information_schema');";
 
 
 pub struct Db {
@@ -13,8 +17,15 @@ pub struct Db {
 
 impl Db {
     pub async fn new() -> Db {
+        
+        let db_url = env::var(DB_URL_VAR_NAME).expect(DB_URL_ERR);
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(db_url.as_str())
+            .await
+            .expect(DB_CONNECT_ERR);
         Db{
-            pool: init_db().await,
+            pool: pool,
         }
     }
 
@@ -25,7 +36,7 @@ impl Db {
         let result = sqlx::query(query)
                 .fetch_all(&self.pool)
                 .await
-                .expect("failed to execute query");
+                .expect(QUERY_FAILED);
          
         
         let mut result_strs: Vec<Vec<String>> = Vec::new();
@@ -62,30 +73,5 @@ impl Db {
 
 
 
-fn get_db_url() -> String {
-        env::var("DB_URL").expect("DB_URL must be set")
-}
-
-
-pub async fn init_db() -> PgPool {
-    let db_url = get_db_url();
-    let logval = format!("db_url = {:?}", db_url);
-    tokio::io::stdout().write_all(logval.as_bytes()).await.expect("failed to write to stdout");
-    tokio::io::stdout().flush().await.expect("failed to flush stdout");
-    // std::io::stdout().flush().unwrap();
-    // std::io::Stdout::flush().await;
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(db_url.as_str())
-        .await
-        .expect("failed to connect to db");
-    pool
-
-}
-
-
-
-
-pub static TABLES_QUERY: &str  = "SELECT table_name FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog', 'information_schema');";
 
 

@@ -8,8 +8,6 @@ mod db;
 use ratatui_textarea::{CursorMove, TextArea};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, style::Style, text::{Line, Span}, widgets::{Block, Borders, Paragraph, Row, Table} };
-use sqlx::{Column, Row as SqlxRow};
-use sqlx_postgres::{ PgPool};
 
 enum Mode {
     Insert,
