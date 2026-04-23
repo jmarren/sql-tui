@@ -1,7 +1,7 @@
 use std::env;
 
 use sqlx::{Column, Row};
-use sqlx_postgres::{PgPool, PgPoolOptions};
+use sqlx_postgres::{PgPool, PgPoolOptions, PgRow};
 use crate::lib::pgtype;
 
 static DB_URL_VAR_NAME: &str = "DB_URL";
@@ -40,14 +40,8 @@ impl Db {
          
         
         let mut result_strs: Vec<Vec<String>> = Vec::new();
-        let mut result_cols = Vec::<String>::new();
-
         // use the column names from the first row as result_columns
-        if result.len() > 0 {
-            result_cols = result[0].columns().iter().map(| col | {
-                    col.name().to_string()
-            }).collect();
-        }
+        let result_cols = self.col_names(&result);
     
         // push stringified rows into result_strs
         for row in result {
@@ -68,6 +62,16 @@ impl Db {
         });
 
         table_names
+    }
+
+    pub fn col_names(&mut self, rows: &Vec<PgRow>) -> Vec<String> {
+        let mut result_cols = Vec::<String>::new();
+        if rows.len() > 0 {
+            result_cols = rows[0].columns().iter().map(| col | {
+                    col.name().to_string()
+            }).collect();
+        }
+        result_cols
     }
 }
 

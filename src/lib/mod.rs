@@ -7,7 +7,7 @@ mod db;
 
 use ratatui_textarea::{CursorMove, TextArea};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, style::Style, text::{Line, Span}, widgets::{Block, Borders, Paragraph, Row, Table} };
+use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, style::{Color, Modifier, Style, Stylize}, text::{Line, Span}, widgets::{Block, Borders, Paragraph, Row, Table } };
 
 enum Mode {
     Insert,
@@ -19,15 +19,75 @@ enum Section {
     Results,
 }
 
-enum SideTab {
-    Editor,
-    Tables,
+static SIDE_TABS: [&str; 2] = [" editor ", " tables "];
+
+struct Tabs<'a> {
+    paragraph: Paragraph<'a>,
+    tabs: [Line<'a>;2],
+    active_idx: i32,
+}
+
+fn make_active_tab_line<'a>(text: &'a str) -> Line<'a> {
+    let mut line = Line::from(text);
+    line.set_active();
+    line
 }
 
 
+fn make_inactive_tab_line<'a>(text: &'a str) -> Line<'a> {
+    let mut line = Line::from(text);
+    line.set_inactive();
+    line
+}
 
+trait Activate {
+    fn set_active(&mut self);
+    fn set_inactive(&mut self);
+}
+
+impl <'a> Activate for Line<'a> {
+    fn set_active(&mut self) {
+        *self = self.clone().style(Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD));
+    }
+
+    fn set_inactive(&mut self) {
+        *self = self.clone().style(Style::default().fg(Color::DarkGray));
+    }
+} 
+
+
+
+impl <'a>Tabs<'a> {
+    fn new() -> Tabs<'a> {
+        let tab_lines = [make_active_tab_line(" editor "), make_inactive_tab_line(" tables ")];
+        let paragraph = Paragraph::new(tab_lines.to_vec()).block(Block::default());
+        Tabs { 
+            paragraph: paragraph,
+            tabs: tab_lines,
+            active_idx: 0 
+        }
+    }
+
+
+    fn handle_tab_pressed(&mut self) {
+        self.active_idx = (self.active_idx + 1) % self.tabs.len() as i32;
+        for (i, line) in self.tabs.iter_mut().enumerate() {
+                if i == self.active_idx as usize {
+                    line.set_active();
+                } else {
+                    line.set_inactive();
+                };
+        };
+
+        self.paragraph = Paragraph::new(self.tabs.to_vec()).block(Block::default())
+    }
+
+
+}
+
+
+// struct SideTabs 
 struct App<'a> {
-    // _conn: PgPool,
     db: db::Db,
     textarea: TextArea<'a>,
     term: &'a mut DefaultTerminal,
@@ -37,8 +97,8 @@ struct App<'a> {
     should_quit: bool,
     focus: Section,
     highlighter: highlight::HighlightParser<'a>,
+    tabs: Tabs<'a>,
     tables: Vec<String>,
-    side_tab: SideTab,
     styles: Styles,
 }
 
@@ -51,7 +111,6 @@ impl<'a> App<'a> {
         let mut db = db::Db::new().await;
     
         let table_names = db.query_table_names().await;
-
         App{
             db: db,
             textarea: TextArea::default(),
@@ -63,8 +122,8 @@ impl<'a> App<'a> {
             focus: Section::Editor,
             highlighter: highlight::HighlightParser::new(),
             tables: table_names,
-            side_tab: SideTab::Editor,
             styles: Styles::new(),
+            tabs: Tabs::new(),
         }
     }
 
@@ -74,22 +133,11 @@ impl<'a> App<'a> {
     }
 
 
+
     fn draw(&mut self) {
+        
 
-        let tab_names = ["editor", "tables"];
-        let active_tab_idx = match self.side_tab {
-            SideTab::Editor => 0,
-            SideTab::Tables => 1,
-        };
-        let spans_vec: Vec<Line> = tab_names.iter().enumerate().map(|(i, name)| {
-            let style = if i == active_tab_idx {
-                self.styles.active_tab
-            } else {
-                self.styles.inactive_tab
-            };
-            Line::from(Span::styled(format!(" {} ", name), style))
-        }).collect();
-
+        //
         let _ = self.term.draw(| frame: &mut Frame |  {
 
         // outer horizontal split: narrow tab bar on left, main content on right
@@ -102,12 +150,13 @@ impl<'a> App<'a> {
             ])
             .split(frame.area());
 
+
         // render side tab bar
         let tab_block = Block::default().borders(Borders::ALL);
         let tab_inner = tab_block.inner(h_layout[0]);
         frame.render_widget(&tab_block, h_layout[0]);
-        let tab_list = Paragraph::new(spans_vec).block(Block::default());
-        frame.render_widget(tab_list, tab_inner);
+        // let tab_list = Paragraph::new(self.tab_lines.to_vec()).block(Block::default());
+        frame.render_widget(&self.tabs.paragraph, tab_inner);
 
         // create layout
         let layout = Layout::default()
@@ -265,10 +314,8 @@ impl<'a> App<'a> {
             },
             // Tab cycles side tabs
             KeyEvent{ code: KeyCode::Tab, .. } => {
-                self.side_tab = match self.side_tab {
-                    SideTab::Editor => SideTab::Tables,
-                    SideTab::Tables => SideTab::Editor,
-                };
+                self.tabs.handle_tab_pressed();
+                // self.active_tab = (self.active_tab + 1) % SIDE_TABS.len() as i32;
                 return;
             },
             _ => {},
@@ -320,5 +367,66 @@ pub async fn app(terminal: &mut DefaultTerminal) -> Result<(), anyhow::Error> {
 }
 
 
+//
+// enum SideTab<'a> {
+//     Active(Line<'a>),
+//     Inactive(Line<'a>),
+// }
+//
+// enum SideTabs<'a> {
+//     Editor(SideTab<'a>),
+//     Tables(SideTab<'a>),
+// }
+//
+// impl <'a>SideTab<'a> {
+//     fn style(self) -> Style {
+//         match self {
+//             SideTab::Active(_) =>  Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD),
+//             SideTab::Inactive(_) =>  Style::default().fg(Color::DarkGray),
+//         }
+//     }
+//
+//     fn line(self, text: String) -> Line {
+//         match self {
+//             SideTab::Active(l) => {
+//                 l.style(self.style());
+//             }
+//         }
+//     }
+//
+// }
+//
+
+// static SIDE_TABS: [SideTab; 2] = [SideTab::Editor, SideTab::Tables];
+//
+// impl <'a>SideTabs<'a> {
+//
+//     fn to_string(self) -> String {
+//         match self {
+//             SideTabs::Editor(_)  => " editor ".to_string(),
+//             SideTabs::Tables(_) => " tables ".to_string(), 
+//         }
+//     }
+//
+//     fn set_active(&mut self) {
+//
+//      // Use 'if let' to gain a mutable reference to the internal fields
+//         // if let self::SideTab(ref mut x, ref mut y) = msg {
+//         //     *x += 5; // Changes 10 to 15
+//         //     *y = 50; // Changes 20 to 50
+//         // }
+//
+//     }
+//
+//     // fn to_line(self) -> Line<'a> {
+//     //
+//     //     // match self {
+//     //     //     // SideTab::E
+//     //     // }
+//     //
+//     // }
+//
+//
+// }
 
 
