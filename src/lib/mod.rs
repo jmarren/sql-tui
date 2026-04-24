@@ -4,10 +4,13 @@ use styles::{Styles};
 mod pgtype;
 mod highlight;
 mod db;
+mod tabs;
 
 use ratatui_textarea::{CursorMove, TextArea};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, style::{Color, Modifier, Style, Stylize}, text::{Line, Span}, widgets::{Block, Borders, Paragraph, Row, Table } };
+use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, style::{Color, Modifier, Style}, text::{Line}, widgets::{Block, Borders, Paragraph, Row, Table}};
+
+use crate::lib::tabs::Tabs;
 
 enum Mode {
     Insert,
@@ -19,71 +22,7 @@ enum Section {
     Results,
 }
 
-static SIDE_TABS: [&str; 2] = [" editor ", " tables "];
-
-struct Tabs<'a> {
-    paragraph: Paragraph<'a>,
-    tabs: [Line<'a>;2],
-    active_idx: i32,
-}
-
-fn make_active_tab_line<'a>(text: &'a str) -> Line<'a> {
-    let mut line = Line::from(text);
-    line.set_active();
-    line
-}
-
-
-fn make_inactive_tab_line<'a>(text: &'a str) -> Line<'a> {
-    let mut line = Line::from(text);
-    line.set_inactive();
-    line
-}
-
-trait Activate {
-    fn set_active(&mut self);
-    fn set_inactive(&mut self);
-}
-
-impl <'a> Activate for Line<'a> {
-    fn set_active(&mut self) {
-        *self = self.clone().style(Style::default().fg(Color::Black).bg(Color::White).add_modifier(Modifier::BOLD));
-    }
-
-    fn set_inactive(&mut self) {
-        *self = self.clone().style(Style::default().fg(Color::DarkGray));
-    }
-} 
-
-
-
-impl <'a>Tabs<'a> {
-    fn new() -> Tabs<'a> {
-        let tab_lines = [make_active_tab_line(" editor "), make_inactive_tab_line(" tables ")];
-        let paragraph = Paragraph::new(tab_lines.to_vec()).block(Block::default());
-        Tabs { 
-            paragraph: paragraph,
-            tabs: tab_lines,
-            active_idx: 0 
-        }
-    }
-
-
-    fn handle_tab_pressed(&mut self) {
-        self.active_idx = (self.active_idx + 1) % self.tabs.len() as i32;
-        for (i, line) in self.tabs.iter_mut().enumerate() {
-                if i == self.active_idx as usize {
-                    line.set_active();
-                } else {
-                    line.set_inactive();
-                };
-        };
-
-        self.paragraph = Paragraph::new(self.tabs.to_vec()).block(Block::default())
-    }
-
-
-}
+// static SIDE_TABS: [&str; 2] = [" editor ", " tables "];
 
 
 // struct SideTabs 
@@ -137,7 +76,6 @@ impl<'a> App<'a> {
     fn draw(&mut self) {
         
 
-        //
         let _ = self.term.draw(| frame: &mut Frame |  {
 
         // outer horizontal split: narrow tab bar on left, main content on right
