@@ -22,8 +22,8 @@ pub enum Command {
     // enter insert mode
     EnterInsertMode,
     EnterVisualMode,
-    Move(Focus, MoveDirection),
-    SetFocus(Focus),
+    MoveCursor(MoveDirection),
+    MoveFocus(MoveDirection),
     TODO,
 }
 
@@ -37,119 +37,59 @@ impl From<(&Focus, &Mode, KeyEvent)> for Command {
             (_, _,  KeyEvent{ code: KeyCode::Esc,  .. }) => {
                 Self::Exit
             },
-            // Editor
-            (Focus::Editor, mode, key) => {
-                match (mode, key)  {
-                    // Editor Visual Mode
-                    (Mode::Visual, key) => {
-                        match key { 
-                            // Ctrl-S to execute Query
-                            KeyEvent{ code: KeyCode::Char('s'), modifiers: KeyModifiers::CONTROL, .. } => {
-                                Self::ExecuteQuery
-                            }
-                            KeyEvent{ code: KeyCode::Char('j'), modifiers: KeyModifiers::CONTROL, .. } => {
-                                Self::SetFocus(Focus::Results)
-                            },
-                            KeyEvent{ code: KeyCode::Char('h'), modifiers: KeyModifiers::CONTROL, .. } => {
-                                Self::SetFocus(Focus::SideTab)
-                            },
-                            // i for insert mode
-                            KeyEvent{ code: KeyCode::Char('i'), .. } => {
-                                Self::EnterInsertMode
-                            },
-                            // j for down
-                            KeyEvent{ code: KeyCode::Char('j'), .. } => {
-                                Self::Move(Focus::Editor, MoveDirection::Down)
-                            },
-                            // h for left
-                            KeyEvent{ code: KeyCode::Char('h'), .. } => {
-                                Self::Move(Focus::Editor, MoveDirection::Left)
-                            },
-                            // k for Up
-                            KeyEvent{ code: KeyCode::Char('k'), .. } => {
-                                Self::Move(Focus::Editor, MoveDirection::Up)
-                            },
-                            // l for Right
-                            KeyEvent{ code: KeyCode::Char('l'), .. } => {
-                                Self::Move(Focus::Editor, MoveDirection::Right)
-                            }, 
-                            _ => Self::TODO
-                        }
-                    },
-                    // Editor Insert Mode
-                    (Mode::Insert, key) => {
-                        match key {
-                            // Ctrl-C to enter visual mode
-                            KeyEvent{ code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. } => {
-                                Self::EnterVisualMode
-                            },
-                            // otherwise insert key
-                            _ => {
-                                Self::InsertKey(key)
-                            },
-                        }
+            // move focus
+            (_, _, KeyEvent{ code: KeyCode::Char('j'), modifiers: KeyModifiers::CONTROL, .. }) => {
+                Self::MoveFocus(MoveDirection::Down)
+            },
+            (_, _, KeyEvent{ code: KeyCode::Char('h'), modifiers: KeyModifiers::CONTROL, .. }) => {
+                Self::MoveFocus(MoveDirection::Left)
+            },
+            (_, _, KeyEvent{ code: KeyCode::Char('l'), modifiers: KeyModifiers::CONTROL, .. }) => {
+                Self::MoveFocus(MoveDirection::Right)
+            },
+            (_, _, KeyEvent{ code: KeyCode::Char('k'), modifiers: KeyModifiers::CONTROL, .. }) => {
+                Self::MoveFocus(MoveDirection::Up)
+            },
+            (Focus::Editor, Mode::Insert, key) => {
+                    match key {
+                        // Ctrl-C to enter visual mode
+                        KeyEvent{ code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. } => {
+                            Self::EnterVisualMode
+                        },
+                        // otherwise insert key
+                        _ => {
+                            Self::InsertKey(key)
+                        },
                     }
-                }
             },
-            // Side Tab
-            (Focus::SideTab, _, key) =>  {
-                match key {
-                        KeyEvent{ code: KeyCode::Char('l'), modifiers: KeyModifiers::CONTROL, .. } => {
-                            Self::SetFocus(Focus::Editor)
-                        },
-                        // j to scroll down
-                        KeyEvent{ code: KeyCode::Char('j'), .. } => {
-                            Self::Move(Focus::SideTab, MoveDirection::Down)
-                        },
-                        // k to scroll up
-                        KeyEvent{ code: KeyCode::Char('k'), .. } => {
-                            Self::Move(Focus::SideTab, MoveDirection::Up)
-                        },
-                        _ => Self::TODO
-                }
+            (Focus::Editor, Mode::Visual, KeyEvent{ code: KeyCode::Char('s'), modifiers: KeyModifiers::CONTROL, .. }) => {
+                Self::ExecuteQuery
             },
-            // Results
-            (Focus::Results, _, key) =>  {
+            (Focus::Editor, Mode::Visual, KeyEvent{ code: KeyCode::Char('i'), .. }) => {
+                Self::EnterInsertMode
+            },
+            (_, _, key) => {
                 match key {
-                        KeyEvent{ code: KeyCode::Char('k'), modifiers: KeyModifiers::CONTROL, .. } => {
-                            Self::SetFocus(Focus::Editor)
-                        },
-                        KeyEvent{ code: KeyCode::Char('h'), modifiers: KeyModifiers::CONTROL, .. } => {
-                            Self::SetFocus(Focus::SideTab)
-                        },
-                        // j to scroll down
                         KeyEvent{ code: KeyCode::Char('j'), .. } => {
-                            Self::Move(Focus::Results, MoveDirection::Down)
+                            Self::MoveCursor(MoveDirection::Down)
                         },
-                        // h to scroll left
+                        // h for left
                         KeyEvent{ code: KeyCode::Char('h'), .. } => {
-                            Self::Move(Focus::Results, MoveDirection::Left)
+                            Self::MoveCursor(MoveDirection::Left)
                         },
-                        // k to scroll up
+                        // k for Up
                         KeyEvent{ code: KeyCode::Char('k'), .. } => {
-                            Self::Move(Focus::Results, MoveDirection::Up)
+                            Self::MoveCursor(MoveDirection::Up)
                         },
-                        // k to scroll right
+                        // l for Right
                         KeyEvent{ code: KeyCode::Char('l'), .. } => {
-                            Self::Move(Focus::Results, MoveDirection::Right)
+                            Self::MoveCursor(MoveDirection::Right)
                         }, 
-                        _ => Self::TODO,
-                }
-            },
-
-            (Focus::Tables, _, key) =>  {
-                match key {
-                        // j to scroll down
-                        KeyEvent{ code: KeyCode::Char('j'), .. } => {
-                            Self::Move(Focus::Tables, MoveDirection::Down)
+                        _ => {
+                            Self::TODO
                         },
-                        // k to scroll up
-                        KeyEvent{ code: KeyCode::Char('k'), .. } => {
-                            Self::Move(Focus::Tables, MoveDirection::Up)
-                        },
-                        _ => Self::TODO
                 }
-            },
+            }
         }
     }
 }

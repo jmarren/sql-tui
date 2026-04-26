@@ -1,5 +1,7 @@
 use ratatui::{style::{Color, Modifier, Style}, text::Line, widgets::{Block, Borders, Paragraph, Widget}};
 
+use crate::lib::command::MoveDirection;
+
 
 static EDITOR: &str = " editor ";
 static TABLES: &str = " tables ";
@@ -19,7 +21,7 @@ pub struct Tabs<'a> {
 }
 
 pub struct Tab<'a> {
-    kind: TabKind,
+    text: String,
     line: Line<'a>,
     active_style: Style,
     inactive_style: Style,
@@ -34,15 +36,16 @@ fn make_inactive_style() -> Style {
 }
 
 impl <'a>Tab<'a> {
-    pub fn new(kind: TabKind, active: bool) -> Tab<'a> {
+    pub fn new(text: String, active: bool) -> Tab<'a> {
         // create tab
-        let text = match kind {
-            TabKind::Tables => TABLES, 
-            TabKind::Editor => EDITOR,
-        };
+        // let text = match kind {
+        //     TabKind::Tables => TABLES, 
+        //     TabKind::Editor => EDITOR,
+        // };
 
         let mut tab = Tab {
-            kind: kind,
+            text: text.to_string(),
+            // kind: kind,
             line: Line::from(text),
             active_style: make_active_style(),
             inactive_style: make_inactive_style(),
@@ -70,7 +73,7 @@ impl <'a>Tab<'a> {
 impl <'a>Tabs<'a> {
     pub fn new() -> Tabs<'a> {
         // create array of tabs w/ first active and rest inactive
-        let tabs = [Tab::new(TabKind::Editor, true) , Tab::new(TabKind::Tables, false)];
+        let tabs = [Tab::new(" editor ".to_string(), true), Tab::new(" tables ".to_string(), false)];
         let mut tabs = Tabs { 
             paragraph: Paragraph::new(vec![]),
             tabs: tabs,
@@ -82,7 +85,7 @@ impl <'a>Tabs<'a> {
         tabs
     }
     
-    // collect lines into a vector
+    // collect tab lines into a vector
     fn lines(&self) -> Vec<Line<'a>> {
         self.tabs.iter().map(| tab | { tab.line.clone() }).collect()
     }
@@ -93,21 +96,33 @@ impl <'a>Tabs<'a> {
     }
 
     // increment active tab and reset paragraph
-    pub fn scroll(&mut self) {
+    pub fn scroll(&mut self, direction: MoveDirection) {
         // set current active tab to inactive
         self.tabs[self.active_idx as usize].set_inactive();
         // increment active index and mod it by length of tabs
-        self.active_idx = (self.active_idx + 1) % self.tabs.len() as i32;
+        match direction {
+            MoveDirection::Up => {
+                self.active_idx = (self.active_idx + 1).abs() % self.tabs.len() as i32;
+            },
+            MoveDirection::Down => {
+                self.active_idx = (self.active_idx - 1).abs() % self.tabs.len() as i32;
+            },
+            _ => {}
+        }
         // set new current active tab to active
         self.tabs[self.active_idx as usize].set_active();
         // get vec of lines 
         self.update_paragraph();
     }
     
-    pub fn active_tab(&self) -> &TabKind {
-        &self.tabs[self.active_idx as usize].kind
-    }
 
+    pub fn active_tab(&self) -> TabKind {
+        if self.tabs[self.active_idx as usize].text == " editor " {
+            TabKind::Editor
+        } else {
+            TabKind::Tables
+        }
+    }
 
     pub fn take_focus(&mut self) {
         self.block = Block::default()

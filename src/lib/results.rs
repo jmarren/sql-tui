@@ -1,5 +1,7 @@
 use ratatui::{style::Style, widgets::{Block, Borders, Row, Table}};
 
+use crate::lib::command::MoveDirection;
+
 
 
 pub struct Results<'a>{
@@ -54,8 +56,17 @@ impl <'a>Results<'a> {
                         .header(cols)
                         .rows(rows);
     }
+
+    pub fn scroll(&mut self, direction: MoveDirection) {
+        match direction {
+            MoveDirection::Up => self.scroll_up(),
+            MoveDirection::Down => self.scroll_down(),
+            MoveDirection::Left => self.scroll_left(),
+            MoveDirection::Right => self.scroll_right(),
+        }
+    }
     
-    pub fn scroll_down(&mut self) {
+    fn scroll_down(&mut self) {
       if let Some(last) = self.values.pop() {
           let curr = self.values.clone();
           self.values = Vec::new();
@@ -65,13 +76,13 @@ impl <'a>Results<'a> {
       }
     }
 
-    pub fn scroll_up(&mut self) {
+    fn scroll_up(&mut self) {
        let first = self.values.remove(0);
        self.values.push(first);
        self.update_table();
     }
 
-    pub fn scroll_right(&mut self) {
+     fn scroll_right(&mut self) {
          let mut new_rows = Vec::new();
          for row in &mut self.values  {
              let mut new_row = Vec::new();
@@ -82,14 +93,25 @@ impl <'a>Results<'a> {
              new_rows.push(new_row);
          }
          self.values = new_rows;
+         let mut cols = Vec::new();
+         if let Some(last) = self.columns.pop() {
+            cols.push(last);
+            cols.extend(self.columns.clone());
+         }
+         self.columns = cols;
+        
          self.update_table();
     }
 
 
-    pub fn scroll_left(&mut self) {
+    fn scroll_left(&mut self) {
         for row in &mut self.values {
             let first = row.remove(0);
             row.push(first);
+        }
+        if self.columns.len() > 1 {
+            let first = self.columns.remove(0);
+            self.columns.push(first);
         }
         self.update_table();
     }

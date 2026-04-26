@@ -1,5 +1,5 @@
 mod log;
-mod tables;
+mod list;
 mod results;
 mod command;
 mod pgtype;
@@ -9,23 +9,18 @@ mod tabs;
 mod styles;
 mod editor;
 
-use ratatui_textarea::{CursorMove};
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, style::Style, widgets::{Block, Borders, Row, Table}};
+use crossterm::event::{Event};
+use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, style::Style, widgets::{Block, Borders}};
 
-use crate::lib::{command::{Command, MoveDirection}, editor::Editor, results::Results, tabs::{TabKind, Tabs}};
+use crate::lib::{command::{Command, MoveDirection}, editor::Editor, results::Results };
 
 pub enum Mode {
     Insert,
     Visual,
 }
 
-enum Section {
-    Upper,
-    Lower,
-}
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Focus {
     SideTab,
     Editor,
@@ -33,11 +28,6 @@ pub enum Focus {
     Tables,
 }
 
-// impl Focus {
-//     fn take_focus(self) {
-//
-//     }
-// }
 
 
 // struct SideTabs 
@@ -48,11 +38,10 @@ struct App<'a> {
     mode: Mode,
     should_quit: bool,
     focused: Focus,
-    tabs: Tabs<'a>,
-    tables: tables::Tables<'a>,
+    tabs: list::List<'a>,
+    tables: list::List<'a>,
     outer_layout: Layout,
     inner_layout: Layout,
-    results_block: Block<'a>,
     editor: Editor<'a>,
 }
 
@@ -76,11 +65,10 @@ impl<'a> App<'a> {
             mode: Mode::Visual,
             should_quit: false,
             focused: Focus::Editor,
-            tables: tables::Tables::new(table_names),
-            tabs: Tabs::new(),
+            tables: list::List::new("tables", table_names),
+            tabs: list::List::new("", vec![" editor ".to_string(), " tables ".to_string()]),
             outer_layout: make_outer(),
             inner_layout: make_inner(),
-            results_block: make_border_title_block("results"),
             editor: editor,
         }
     }
@@ -106,15 +94,12 @@ impl<'a> App<'a> {
         // create layout
         let layout = self.inner_layout.split(h_layout[1]);
 
-        match *self.tabs.active_tab()  {
-            TabKind::Editor => {
+        if self.tabs.active_item() == " editor ".to_string()  {
                 frame.render_widget(&self.editor.block, layout[0]);
                 frame.render_widget(self.editor.line(), self.editor.block.inner(layout[0]));
-            },
-            TabKind::Tables => {
+        } else {
                 frame.render_widget(&self.tables.block, layout[0]);
                 frame.render_widget(&self.tables.paragraph, self.tables.block.inner(layout[0]));
-            },
         }
         frame.render_widget(&self.results.block, layout[1]);
         frame.render_widget(&self.results.table, self.results.block.inner(layout[1]));
@@ -143,41 +128,35 @@ impl<'a> App<'a> {
                     // get content and perform query
                      self.user_query(self.editor.content()).await;
             },
-            Command::Move(focus,direction) => {
-                match (focus,direction) {
-                    (Focus::Editor, MoveDirection::Up) => {
-                            self.editor.textarea.move_cursor(CursorMove::Up);
-                    },
-                    (Focus::Editor, MoveDirection::Down) => {
-                            self.editor.textarea.move_cursor(CursorMove::Down);
-                    },
-                    (Focus::Editor, MoveDirection::Left) => {
-                            self.editor.textarea.move_cursor(CursorMove::Back);
-                    },
-                    (Focus::Editor, MoveDirection::Right) => {
-                            self.editor.textarea.move_cursor(CursorMove::Forward);
-                    },
-                    (Focus::SideTab, MoveDirection::Down) => {
-                            self.tabs.scroll();
-                    },
-                    (Focus::Results, MoveDirection::Up) => {
-                            self.results.scroll_up();
-                    },
-                    (Focus::Results, MoveDirection::Down) => {
-                            self.results.scroll_down();
-                    },
-                    (Focus::Results, MoveDirection::Right) => {
-                            self.results.scroll_right();
-                    },
-                    (Focus::Results, MoveDirection::Left) => {
-                            self.results.scroll_left();
-                    },
-                    _ => {},
-
-                }
+            Command::MoveCursor(direction) => {
+                self.move_cursor(direction);
             },
-            Command::SetFocus(focus) => {
-                // lose focus on current
+            Command::MoveFocus(direction) => {
+                self.move_focus(direction);
+            }
+
+            _ => {}
+        }
+    }
+
+    fn move_cursor(&mut self, direction: MoveDirection) {
+                match (self.focused,direction) {
+                    (Focus::Editor, dir) => {
+                            self.editor.move_cursor(dir);
+                    },
+                    (Focus::SideTab, dir) => {
+                            self.tabs.scroll(dir);
+                    },
+                    (Focus::Results, dir) => {
+                            self.results.scroll(dir);
+                    },
+                    (Focus::Tables, dir) => {
+                            self.tables.scroll(dir);
+                    },
+                }
+    }
+
+    fn move_focus(&mut self, direction: MoveDirection) {
                 match self.focused {
                     Focus::Results => {
                         self.results.lose_focus();
@@ -188,11 +167,45 @@ impl<'a> App<'a> {
                     Focus::SideTab => {
                         self.tabs.lose_focus();
                     },
+                    Focus::Tables => {
+                        self.tables.lose_focus();
+                    }
+                }
+
+                // set new focus
+                match (&self.focused, direction) {
+                    (Focus::Results, MoveDirection::Up) => {
+                        if self.tabs.active_item() == " editor " {
+                            self.focused = Focus::Editor;
+                        } else {
+                            self.focused = Focus::Tables;
+                        }
+                    },
+                    (Focus::Results, MoveDirection::Left) => {
+                        self.focused = Focus::SideTab;
+                    }
+                    (Focus::SideTab, MoveDirection::Right) => {
+                        if self.tabs.active_item() == " editor " {
+                            self.focused = Focus::Editor;
+                        } else {
+                            self.focused = Focus::Tables;
+                        }
+                    },
+                    (Focus::Editor, MoveDirection::Left) => {
+                        self.focused = Focus::SideTab;
+                    }
+                    (Focus::Editor, MoveDirection::Down) => {
+                        self.focused = Focus::Results;
+                    },
+                    (Focus::Tables, MoveDirection::Down) => {
+                        self.focused = Focus::Results;
+                    },
+                    (Focus::Tables, MoveDirection::Left) => {
+                        self.focused = Focus::SideTab;
+                    }
                     _ => {}
                 }
                 
-                self.focused = focus;
-
                 // take focus on current
                 match self.focused {
                     Focus::Results => {
@@ -204,12 +217,10 @@ impl<'a> App<'a> {
                     Focus::SideTab => {
                         self.tabs.take_focus();
                     },
-                    _ => {}
+                    Focus::Tables => {
+                        self.tables.take_focus();
+                    }
                 }
-            }
-
-            _ => {}
-        }
     }
 
 
@@ -236,7 +247,6 @@ impl<'a> App<'a> {
                 break Ok(());
             }
         }
-            
     }
 
 }

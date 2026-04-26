@@ -1,6 +1,6 @@
-use crate::lib::highlight::{self, HighlightParser};
+use crate::lib::{command::MoveDirection, highlight::{self, HighlightParser}};
 use ratatui::{ style::Style, text::Line, widgets::{Block, Borders}};
-use ratatui_textarea::TextArea;
+use ratatui_textarea::{CursorMove, TextArea};
 
 
 pub struct Editor<'a> {
@@ -42,5 +42,22 @@ impl <'a>Editor<'a> {
 
     pub fn content(&self) -> String {
         self.textarea.lines().join("\n")
+    }
+
+    pub fn move_cursor(&mut self, direction: MoveDirection) {
+        match direction {
+                    MoveDirection::Up => {
+                            self.textarea.move_cursor(CursorMove::Up);
+                    },
+                    MoveDirection::Down => {
+                            self.textarea.move_cursor(CursorMove::Down);
+                    },
+                    MoveDirection::Left => {
+                            self.textarea.move_cursor(CursorMove::Back);
+                    },
+                    MoveDirection::Right => {
+                            self.textarea.move_cursor(CursorMove::Forward);
+                    }
+        }
     }
 }
