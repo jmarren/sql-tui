@@ -1,6 +1,5 @@
 use ratatui::text::Span;
 use tree_sitter_highlight::{Highlight, HighlightConfiguration, HighlightEvent, Highlighter};
-
 use crate::lib::styles::TextColor;
 
 

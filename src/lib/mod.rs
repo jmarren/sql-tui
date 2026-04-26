@@ -1,47 +1,62 @@
 mod log;
-mod styles;
-use styles::{Styles};
+mod tables;
+mod results;
+mod command;
 mod pgtype;
 mod highlight;
 mod db;
 mod tabs;
+mod styles;
+mod editor;
 
-use ratatui_textarea::{CursorMove, TextArea};
+use ratatui_textarea::{CursorMove};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, style::{Color, Modifier, Style}, text::{Line}, widgets::{Block, Borders, Paragraph, Row, Table}};
+use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, style::Style, widgets::{Block, Borders, Row, Table}};
 
-use crate::lib::tabs::Tabs;
+use crate::lib::{command::{Command, MoveDirection}, editor::Editor, results::Results, tabs::{TabKind, Tabs}};
 
-enum Mode {
+pub enum Mode {
     Insert,
     Visual,
 }
 
 enum Section {
-    Editor,
-    Results,
+    Upper,
+    Lower,
 }
 
-// static SIDE_TABS: [&str; 2] = [" editor ", " tables "];
+#[derive(Debug)]
+pub enum Focus {
+    SideTab,
+    Editor,
+    Results,
+    Tables,
+}
+
+// impl Focus {
+//     fn take_focus(self) {
+//
+//     }
+// }
 
 
 // struct SideTabs 
 struct App<'a> {
     db: db::Db,
-    textarea: TextArea<'a>,
     term: &'a mut DefaultTerminal,
-    result_columns: Vec<String>,
-    results: Vec<Vec<String>>,
+    results: Results<'a>,
     mode: Mode,
     should_quit: bool,
-    focus: Section,
-    highlighter: highlight::HighlightParser<'a>,
+    focused: Focus,
     tabs: Tabs<'a>,
-    tables: Vec<String>,
-    styles: Styles,
+    tables: tables::Tables<'a>,
+    outer_layout: Layout,
+    inner_layout: Layout,
+    results_block: Block<'a>,
+    editor: Editor<'a>,
 }
 
- 
+
 
 
 impl<'a> App<'a> {
@@ -50,232 +65,163 @@ impl<'a> App<'a> {
         let mut db = db::Db::new().await;
     
         let table_names = db.query_table_names().await;
+            
+        let mut editor = Editor::new();
+        editor.take_focus();
+
         App{
             db: db,
-            textarea: TextArea::default(),
             term: terminal,
-            results: Vec::new(),
-            result_columns: Vec::new(),
+            results: Results::new(),
             mode: Mode::Visual,
             should_quit: false,
-            focus: Section::Editor,
-            highlighter: highlight::HighlightParser::new(),
-            tables: table_names,
-            styles: Styles::new(),
+            focused: Focus::Editor,
+            tables: tables::Tables::new(table_names),
             tabs: Tabs::new(),
+            outer_layout: make_outer(),
+            inner_layout: make_inner(),
+            results_block: make_border_title_block("results"),
+            editor: editor,
         }
     }
 
     // perform the provided query and set result_columns and results
     async fn user_query(&mut self, query: String) {
-        (self.result_columns, self.results) = self.db.query(query.as_str()).await;
+        let (cols, vals) = self.db.query(query.as_str()).await;
+        self.results.set_results(cols, vals);
     }
-
-
+    
 
     fn draw(&mut self) {
-        
-
         let _ = self.term.draw(| frame: &mut Frame |  {
 
         // outer horizontal split: narrow tab bar on left, main content on right
-        let h_layout = Layout::default()
-            .direction(Direction::Horizontal)
-            .margin(2)
-            .constraints(vec![
-                Constraint::Length(10),
-                Constraint::Min(0),
-            ])
-            .split(frame.area());
-
+        let h_layout = self.outer_layout.split(frame.area());
 
         // render side tab bar
-        let tab_block = Block::default().borders(Borders::ALL);
-        let tab_inner = tab_block.inner(h_layout[0]);
-        frame.render_widget(&tab_block, h_layout[0]);
-        // let tab_list = Paragraph::new(self.tab_lines.to_vec()).block(Block::default());
+        let tab_inner = self.tabs.block.inner(h_layout[0]);
+        frame.render_widget(&self.tabs.block, h_layout[0]);
         frame.render_widget(&self.tabs.paragraph, tab_inner);
 
         // create layout
-        let layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![
-                Constraint::Percentage(50),
-                Constraint::Percentage(50)
-            ])
-            .split(h_layout[1]);
+        let layout = self.inner_layout.split(h_layout[1]);
 
-        let mut rows = Vec::new();
-
-        for result_row in self.results.clone() {
-            rows.push(Row::new(result_row));
+        match *self.tabs.active_tab()  {
+            TabKind::Editor => {
+                frame.render_widget(&self.editor.block, layout[0]);
+                frame.render_widget(self.editor.line(), self.editor.block.inner(layout[0]));
+            },
+            TabKind::Tables => {
+                frame.render_widget(&self.tables.block, layout[0]);
+                frame.render_widget(&self.tables.paragraph, self.tables.block.inner(layout[0]));
+            },
         }
-
-
-        // create results table
-        let results_table = Table::default()
-            .header(Row::new(self.result_columns.clone()))
-            .rows(rows);
-
-        // create results block
-        let b = Block::default()
-            .title("results")
-            .borders(Borders::ALL);
-
-        // create editor block
-        let editor = Block::default()
-            .title("sql editor")
-            .borders(Borders::ALL);
-
-        frame.render_widget(&editor, layout[0]);
-        frame.render_widget(&b, layout[1]);
-
-        let line = Line::from(self.highlighter.spans.clone());
-        frame.render_widget(line, editor.inner(layout[0]));
-        frame.render_widget(&results_table, b.inner(layout[1]));
+        frame.render_widget(&self.results.block, layout[1]);
+        frame.render_widget(&self.results.table, self.results.block.inner(layout[1]));
 
         });
     }
 
-
-
-    async fn editor_handle_key(&mut self, key: KeyEvent) {
-
-            match (&self.mode, key) {
-                (Mode::Insert, KeyEvent{ code: KeyCode::Esc,  .. }) => {
-                    // set mode to visual
-                    self.mode = Mode::Visual;
-                    // set cursor style to reversed
-                    self.textarea.set_cursor_style(Style::default().reversed());
-                },
-                (_, KeyEvent{ code: KeyCode::Char('s'), modifiers: KeyModifiers::CONTROL, .. }) => {
-                    // set content and perform query
-                    let content = self.textarea.lines().join("\n");
-                     self.user_query(content).await;
-                },
-                (Mode::Insert, _) => {
-                    // insert character
-                    // input the key
-                    self.textarea.input(key);
-                    self.highlighter.highlight(self.textarea.lines().join("\n"));
-                },
-                (Mode::Visual, KeyEvent{ code: KeyCode::Char('i'), ..}) => {
-                    // set mode to insert
-                    self.mode = Mode::Insert;  
-                    self.textarea.set_cursor_style(Style::new().not_reversed());
-                },
-                (Mode::Visual, KeyEvent{ code, modifiers,  .. }) => {
-                    match (code, modifiers) {
-                        (KeyCode::Char('k'), _) => {
-                            // cursor up
-                            self.textarea.move_cursor(CursorMove::Up);
-                        },
-                        (KeyCode::Char('j'), KeyModifiers::CONTROL) => {
-                            // move focus to results section
-                            self.focus = Section::Results;   
-                        },
-                        (KeyCode::Char('j'), _) => {
-                            // cursor down
-                            self.textarea.move_cursor(CursorMove::Down);
-                        },
-                        (KeyCode::Char('l'), _) => {
-                            // cursor forward
-                            self.textarea.move_cursor(CursorMove::Forward);
-                        },
-                        (KeyCode::Char('h'), _) => {
-                            // cursor back
-                            self.textarea.move_cursor(CursorMove::Back);
-                        },
-                        _ => {}
-                    }
-                }
-            }
-    }
-
-    async fn results_handle_key(&mut self, key: KeyEvent) {
-            match key {
-                KeyEvent{ code, modifiers, ..} => {
-                    match (code, modifiers) {
-                        (KeyCode::Char('k'), KeyModifiers::CONTROL) => {
-                            // move focus up to editor
-                            self.focus = Section::Editor;   
-                        },
-                        (KeyCode::Char('k'), _) => {
-                            // scroll results up
-                            let first = self.results.remove(0);
-                            self.results.push(first);
-                        },
-                        (KeyCode::Char('j'), _) => {
-                            // scroll results down
-                            if let Some(last) = self.results.pop() {
-                                let curr = self.results.clone();
-                                self.results = Vec::new();
-                                self.results.push(last);
-                                self.results.extend(curr);
-                            }
-                        },
-                        (KeyCode::Char('w'), _) => {
-                            // scroll results forward (horizontally)
-                            let mut new_rows = Vec::new();
-                            for row in &mut self.results  {
-                                let mut new_row = Vec::new();
-                                if let Some(last) = row.pop() {
-                                    new_row.push(last);   
-                                }
-                                new_row.extend(row.clone());
-                                new_rows.push(new_row);
-                            }
-                            self.results = new_rows;
-                        },
-                        (KeyCode::Char('b'), _) => {
-                            // scroll results backward (horizontally)
-                            for row in &mut self.results  {
-                                let first = row.remove(0);
-                                row.push(first);
-                            }
-                        },
-                        _ => {}
-                    }
-                }
-            }
-
-    }
-
-    async fn handle_key(&mut self, key: KeyEvent)  {
-
-        match key {
-            // always quit app on Ctrl-C
-            KeyEvent{ code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. } => {
-                    // quit app
+    async fn run_command(&mut self, cmd: command::Command) {
+        match cmd {
+            Command::Exit => {
                     self.should_quit = true;
-                    return;
             },
-            // Tab cycles side tabs
-            KeyEvent{ code: KeyCode::Tab, .. } => {
-                self.tabs.handle_tab_pressed();
-                // self.active_tab = (self.active_tab + 1) % SIDE_TABS.len() as i32;
-                return;
+            Command::EnterInsertMode => {
+                    self.mode = Mode::Insert;  
+                    self.editor.textarea.set_cursor_style(Style::new().not_reversed());
+            }, 
+            Command::EnterVisualMode => {
+                    self.mode = Mode::Visual;
+                    self.editor.textarea.set_cursor_style(Style::default().reversed());
             },
-            _ => {},
-        }
-    
-        // handle key depending on focused section
-        match self.focus {
-            Section::Editor => {
-                self.editor_handle_key(key).await;
+            Command::InsertKey(key) => {
+                    self.editor.textarea.input(key);
+                    self.editor.highlighter.highlight(self.editor.textarea.lines().join("\n"));
             },
-            Section::Results => {
-                self.results_handle_key(key).await;
+            Command::ExecuteQuery => {
+                    // get content and perform query
+                     self.user_query(self.editor.content()).await;
             },
+            Command::Move(focus,direction) => {
+                match (focus,direction) {
+                    (Focus::Editor, MoveDirection::Up) => {
+                            self.editor.textarea.move_cursor(CursorMove::Up);
+                    },
+                    (Focus::Editor, MoveDirection::Down) => {
+                            self.editor.textarea.move_cursor(CursorMove::Down);
+                    },
+                    (Focus::Editor, MoveDirection::Left) => {
+                            self.editor.textarea.move_cursor(CursorMove::Back);
+                    },
+                    (Focus::Editor, MoveDirection::Right) => {
+                            self.editor.textarea.move_cursor(CursorMove::Forward);
+                    },
+                    (Focus::SideTab, MoveDirection::Down) => {
+                            self.tabs.scroll();
+                    },
+                    (Focus::Results, MoveDirection::Up) => {
+                            self.results.scroll_up();
+                    },
+                    (Focus::Results, MoveDirection::Down) => {
+                            self.results.scroll_down();
+                    },
+                    (Focus::Results, MoveDirection::Right) => {
+                            self.results.scroll_right();
+                    },
+                    (Focus::Results, MoveDirection::Left) => {
+                            self.results.scroll_left();
+                    },
+                    _ => {},
+
+                }
+            },
+            Command::SetFocus(focus) => {
+                // lose focus on current
+                match self.focused {
+                    Focus::Results => {
+                        self.results.lose_focus();
+                    },
+                    Focus::Editor => {
+                        self.editor.lose_focus();
+                    },
+                    Focus::SideTab => {
+                        self.tabs.lose_focus();
+                    },
+                    _ => {}
+                }
+                
+                self.focused = focus;
+
+                // take focus on current
+                match self.focused {
+                    Focus::Results => {
+                        self.results.take_focus();
+                    },
+                    Focus::Editor => {
+                        self.editor.take_focus();
+                    },
+                    Focus::SideTab => {
+                        self.tabs.take_focus();
+                    },
+                    _ => {}
+                }
+            }
+
+            _ => {}
         }
     }
-    
+
+
+
 
     async fn handle_event(&mut self)  {
         if let Ok(event) = crossterm::event::read() {
             let _ = match event {
                     Event::Key(key) => {
-                        self.handle_key(key).await ;
+                        let input = (&self.focused, &self.mode, key);
+                        let cmd = Command::from(input);
+                        self.run_command(cmd).await;
                     },
                     _ => {}
                 };
@@ -293,6 +239,32 @@ impl<'a> App<'a> {
             
     }
 
+}
+
+
+fn make_outer() -> Layout {
+    Layout::default()
+            .direction(Direction::Horizontal)
+            .margin(2)
+            .constraints(vec![
+                Constraint::Length(10),
+                Constraint::Min(0),
+            ])
+}
+
+fn make_inner() -> Layout {
+    Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![
+                Constraint::Percentage(50),
+                Constraint::Percentage(50)
+            ])
+}
+
+fn make_border_title_block<'a>(title: &'a str) -> Block<'a> {
+    Block::default()
+            .title(title)
+            .borders(Borders::ALL)
 }
 
 #[tokio::main]
