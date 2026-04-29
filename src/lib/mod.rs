@@ -1,5 +1,7 @@
 mod log;
 mod list;
+mod tabs;
+mod tables;
 mod results;
 mod command;
 mod pgtype;
@@ -11,7 +13,7 @@ mod editor;
 use crossterm::event::{Event};
 use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, widgets::{Block, Borders}};
 
-use crate::lib::{command::{Command, MoveDirection}, editor::Editor, results::Results };
+use crate::lib::{command::{Command, MoveDirection}, editor::Editor, results::Results, tables::Tables, tabs::SideTabs };
 
 pub enum Mode {
     Insert,
@@ -43,8 +45,8 @@ struct App<'a> {
     mode: Mode,
     should_quit: bool,
     focused: Focus,
-    tabs: list::List<'a>,
-    tables: list::List<'a>,
+    tabs: SideTabs<'a>,
+    tables: Tables<'a>,
     outer_layout: Layout,
     inner_layout: Layout,
     editor: Editor<'a>,
@@ -70,8 +72,8 @@ impl<'a> App<'a> {
             mode: Mode::Visual,
             should_quit: false,
             focused: Focus::Editor,
-            tables: list::List::new("tables", table_names),
-            tabs: list::List::new("", vec![" editor ".to_string(), " tables ".to_string()]),
+            tables: tables::Tables::new(table_names),
+            tabs: SideTabs::new(),
             outer_layout: make_outer(),
             inner_layout: make_inner(),
             editor: editor,
@@ -87,8 +89,8 @@ impl<'a> App<'a> {
     fn focused_component(&mut self) -> Box<&mut dyn Focusable> {
         match self.focused {
             Focus::Editor => Box::new(&mut self.editor),
-            Focus::Tables => Box::new(&mut self.tables),
-            Focus::SideTab => Box::new(&mut self.tabs),
+            Focus::Tables => Box::new(&mut self.tables.list),
+            Focus::SideTab => Box::new(&mut self.tabs.list),
             Focus::Results => Box::new(&mut self.results),
         }
     }
@@ -101,21 +103,26 @@ impl<'a> App<'a> {
         let h_layout = self.outer_layout.split(frame.area());
 
         // // render side tab bar
-        self.tabs.render(frame, h_layout[0]);
+        self.tabs.list.render(frame, h_layout[0]);
 
         // create layout
         let layout = self.inner_layout.split(h_layout[1]);
 
         self.results.render(frame, layout[1]);
 
-        if self.tabs.active_item() == " editor ".to_string()  {
+        if self.tabs.active_tab() == " editor " {
             self.editor.render(frame, layout[0]);
         } else {
-            self.tables.render(frame, layout[0]);
+            self.tables.list.render(frame, layout[0]);
         }
 
         });
     }
+
+    fn expand_table(&mut self) {
+        self.tables.expand_focused();
+    }
+
 
     async fn run_command(&mut self, cmd: command::Command) {
             match cmd {
@@ -126,9 +133,11 @@ impl<'a> App<'a> {
                 Command::EnterInsertMode => self.mode = Mode::Insert,
                 Command::EnterVisualMode => self.mode = Mode::Visual,
                 Command::InsertKey(key) => self.editor.input_key(key),
+                Command::ExpandTable => self.expand_table(),
                 _ => {}
             }
     }
+
 
     fn move_focus(&mut self, direction: MoveDirection) {
             // lose current focus
@@ -141,19 +150,16 @@ impl<'a> App<'a> {
                 (Focus::Editor, MoveDirection::Down) => self.focused = Focus::Results,
                 (Focus::Tables, MoveDirection::Down) => self.focused = Focus::Results,
                 (Focus::Tables, MoveDirection::Left) => self.focused = Focus::SideTab,
-                (Focus::Results, MoveDirection::Up) if self.tabs.active_item() == " editor " => self.focused = Focus::Editor,
-                (Focus::Results, MoveDirection::Up) if self.tabs.active_item() == " tables " => self.focused = Focus::Tables,
-                (Focus::SideTab, MoveDirection::Right) if self.tabs.active_item() == " editor " => self.focused = Focus::Editor,
-                (Focus::SideTab, MoveDirection::Right) if self.tabs.active_item() == " tables " => self.focused = Focus::Tables,
+                (Focus::Results, MoveDirection::Up) if self.tabs.active_tab() == " editor " => self.focused = Focus::Editor,
+                (Focus::Results, MoveDirection::Up) if self.tabs.active_tab() == " tables " => self.focused = Focus::Tables,
+                (Focus::SideTab, MoveDirection::Right) if self.tabs.active_tab() == " editor " => self.focused = Focus::Editor,
+                (Focus::SideTab, MoveDirection::Right) if self.tabs.active_tab() == " tables " => self.focused = Focus::Tables,
                 _ => {}
             }
         
             // take current focus
             self.focused_component().take_focus();
     }
-
-
-
 
     async fn handle_event(&mut self)  {
         if let Ok(event) = crossterm::event::read() {
@@ -200,11 +206,6 @@ fn make_inner() -> Layout {
             ])
 }
 
-fn make_border_title_block<'a>(title: &'a str) -> Block<'a> {
-    Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-}
 
 #[tokio::main]
 pub async fn app(terminal: &mut DefaultTerminal) -> Result<(), anyhow::Error> {

@@ -32,67 +32,38 @@ impl <'a>Results<'a> {
     }
 
     fn update_table(&mut self) {
-        
-        let mut rows = Vec::new();
         let cols = Row::new(self.columns.clone());
+            
+        let rows: Vec<Row> = self
+            .values
+            .iter()
+            .map(| row | Row::new(row.clone()))
+            .collect();
 
-        for result_row in self.values.clone() {
-            rows.push(Row::new(result_row));
-        }
         self.table = Table::default()
                         .header(cols)
                         .rows(rows);
     }
 
-    
-    fn scroll_down(&mut self) {
-      if let Some(last) = self.values.pop() {
-          let curr = self.values.clone();
-          self.values = Vec::new();
-          self.values.push(last);
-          self.values.extend(curr);
-          self.update_table();
-      }
-    }
-
-    fn scroll_up(&mut self) {
-       let first = self.values.remove(0);
-       self.values.push(first);
-       self.update_table();
-    }
 
      fn scroll_right(&mut self) {
-         let mut new_rows = Vec::new();
-         for row in &mut self.values  {
-             let mut new_row = Vec::new();
-             if let Some(last) = row.pop() {
-                 new_row.push(last);   
-             }
-             new_row.extend(row.clone());
-             new_rows.push(new_row);
-         }
-         self.values = new_rows;
-         let mut cols = Vec::new();
-         if let Some(last) = self.columns.pop() {
-            cols.push(last);
-            cols.extend(self.columns.clone());
-         }
-         self.columns = cols;
-        
-         self.update_table();
+        self.values
+            .iter_mut()
+            .for_each(| val | {
+                val.rotate_left(1);
+            });
+    
+        self.columns.rotate_left(1);
     }
 
 
     fn scroll_left(&mut self) {
-        for row in &mut self.values {
-            let first = row.remove(0);
-            row.push(first);
-        }
-        if self.columns.len() > 1 {
-            let first = self.columns.remove(0);
-            self.columns.push(first);
-        }
-        self.update_table();
+        self.values
+            .iter_mut()
+            .for_each(| val | {
+                val.rotate_right(1);
+            });
+        self.columns.rotate_right(1);
     }
 
     pub fn render(&mut self, frame: &mut Frame, rect: Rect) {
@@ -121,11 +92,13 @@ impl <'a>Focusable for Results<'a> {
             return;
         }
         match direction {
-            MoveDirection::Up => self.scroll_up(),
-            MoveDirection::Down => self.scroll_down(),
+            MoveDirection::Up => self.values.rotate_right(1),
+            MoveDirection::Down => self.values.rotate_left(1),
             MoveDirection::Left => self.scroll_left(),
             MoveDirection::Right => self.scroll_right(),
         }
+
+        self.update_table();
     }
 
 }
