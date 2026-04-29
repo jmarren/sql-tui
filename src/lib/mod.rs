@@ -5,12 +5,11 @@ mod command;
 mod pgtype;
 mod highlight;
 mod db;
-mod tabs;
 mod styles;
 mod editor;
 
 use crossterm::event::{Event};
-use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, style::Style, widgets::{Block, Borders}};
+use ratatui::{DefaultTerminal, Frame, layout::{Constraint, Direction, Layout}, widgets::{Block, Borders}};
 
 use crate::lib::{command::{Command, MoveDirection}, editor::Editor, results::Results };
 
@@ -26,6 +25,11 @@ pub enum Focus {
     Editor,
     Results,
     Tables,
+}
+
+trait Focusable {
+     fn take_focus(&mut self);
+     fn lose_focus(&mut self);
 }
 
 
@@ -78,6 +82,15 @@ impl<'a> App<'a> {
         let (cols, vals) = self.db.query(query.as_str()).await;
         self.results.set_results(cols, vals);
     }
+
+    fn focused_component(& mut self) -> Box<&mut dyn Focusable> {
+        match self.focused {
+            Focus::Editor => Box::new(&mut self.editor),
+            Focus::Tables => Box::new(&mut self.tables),
+            Focus::SideTab => Box::new(&mut self.tabs),
+            Focus::Results => Box::new(&mut self.results),
+        }
+    }
     
 
     fn draw(&mut self) {
@@ -86,141 +99,65 @@ impl<'a> App<'a> {
         // outer horizontal split: narrow tab bar on left, main content on right
         let h_layout = self.outer_layout.split(frame.area());
 
-        // render side tab bar
-        let tab_inner = self.tabs.block.inner(h_layout[0]);
-        frame.render_widget(&self.tabs.block, h_layout[0]);
-        frame.render_widget(&self.tabs.paragraph, tab_inner);
+        // // render side tab bar
+        self.tabs.render(frame, h_layout[0]);
 
         // create layout
         let layout = self.inner_layout.split(h_layout[1]);
 
+        self.results.render(frame, layout[1]);
+
         if self.tabs.active_item() == " editor ".to_string()  {
-                frame.render_widget(&self.editor.block, layout[0]);
-                frame.render_widget(self.editor.line(), self.editor.block.inner(layout[0]));
+            self.editor.render(frame, layout[0]);
         } else {
-                frame.render_widget(&self.tables.block, layout[0]);
-                frame.render_widget(&self.tables.paragraph, self.tables.block.inner(layout[0]));
+            self.tables.render(frame, layout[0]);
         }
-        frame.render_widget(&self.results.block, layout[1]);
-        frame.render_widget(&self.results.table, self.results.block.inner(layout[1]));
 
         });
     }
 
     async fn run_command(&mut self, cmd: command::Command) {
-        match cmd {
-            Command::Exit => {
-                    self.should_quit = true;
-            },
-            Command::EnterInsertMode => {
-                    self.mode = Mode::Insert;  
-                    self.editor.textarea.set_cursor_style(Style::new().not_reversed());
-            }, 
-            Command::EnterVisualMode => {
-                    self.mode = Mode::Visual;
-                    self.editor.textarea.set_cursor_style(Style::default().reversed());
-            },
-            Command::InsertKey(key) => {
-                    self.editor.textarea.input(key);
-                    self.editor.highlighter.highlight(self.editor.textarea.lines().join("\n"));
-            },
-            Command::ExecuteQuery => {
-                    // get content and perform query
-                     self.user_query(self.editor.content()).await;
-            },
-            Command::MoveCursor(direction) => {
-                self.move_cursor(direction);
-            },
-            Command::MoveFocus(direction) => {
-                self.move_focus(direction);
+            match cmd {
+                Command::Exit => self.should_quit = true,
+                Command::ExecuteQuery => self.user_query(self.editor.content()).await,
+                Command::MoveCursor(direction) => self.move_cursor(direction),
+                Command::MoveFocus(direction) => self.move_focus(direction),
+                Command::EnterInsertMode => self.mode = Mode::Insert,
+                Command::EnterVisualMode => self.mode = Mode::Visual,
+                Command::InsertKey(key) => self.editor.input_key(key),
+                _ => {}
             }
-
-            _ => {}
-        }
     }
 
     fn move_cursor(&mut self, direction: MoveDirection) {
-                match (self.focused,direction) {
-                    (Focus::Editor, dir) => {
-                            self.editor.move_cursor(dir);
-                    },
-                    (Focus::SideTab, dir) => {
-                            self.tabs.scroll(dir);
-                    },
-                    (Focus::Results, dir) => {
-                            self.results.scroll(dir);
-                    },
-                    (Focus::Tables, dir) => {
-                            self.tables.scroll(dir);
-                    },
-                }
+            match (self.focused, direction) {
+                (Focus::Editor, dir) => self.editor.move_cursor(dir),
+                (Focus::SideTab, dir) => self.tabs.scroll(dir),
+                (Focus::Results, dir) => self.results.scroll(dir),
+                (Focus::Tables, dir) => self.tables.scroll(dir),
+            }
     }
 
     fn move_focus(&mut self, direction: MoveDirection) {
-                match self.focused {
-                    Focus::Results => {
-                        self.results.lose_focus();
-                    },
-                    Focus::Editor => {
-                        self.editor.lose_focus();
-                    },
-                    Focus::SideTab => {
-                        self.tabs.lose_focus();
-                    },
-                    Focus::Tables => {
-                        self.tables.lose_focus();
-                    }
-                }
+            // lose current focus
+            self.focused_component().lose_focus();
 
-                // set new focus
-                match (&self.focused, direction) {
-                    (Focus::Results, MoveDirection::Up) => {
-                        if self.tabs.active_item() == " editor " {
-                            self.focused = Focus::Editor;
-                        } else {
-                            self.focused = Focus::Tables;
-                        }
-                    },
-                    (Focus::Results, MoveDirection::Left) => {
-                        self.focused = Focus::SideTab;
-                    }
-                    (Focus::SideTab, MoveDirection::Right) => {
-                        if self.tabs.active_item() == " editor " {
-                            self.focused = Focus::Editor;
-                        } else {
-                            self.focused = Focus::Tables;
-                        }
-                    },
-                    (Focus::Editor, MoveDirection::Left) => {
-                        self.focused = Focus::SideTab;
-                    }
-                    (Focus::Editor, MoveDirection::Down) => {
-                        self.focused = Focus::Results;
-                    },
-                    (Focus::Tables, MoveDirection::Down) => {
-                        self.focused = Focus::Results;
-                    },
-                    (Focus::Tables, MoveDirection::Left) => {
-                        self.focused = Focus::SideTab;
-                    }
-                    _ => {}
-                }
-                
-                // take focus on current
-                match self.focused {
-                    Focus::Results => {
-                        self.results.take_focus();
-                    },
-                    Focus::Editor => {
-                        self.editor.take_focus();
-                    },
-                    Focus::SideTab => {
-                        self.tabs.take_focus();
-                    },
-                    Focus::Tables => {
-                        self.tables.take_focus();
-                    }
-                }
+            // set new focus
+            match (&self.focused, direction) {
+                (Focus::Results, MoveDirection::Left) => self.focused = Focus::SideTab,
+                (Focus::Editor, MoveDirection::Left) => self.focused = Focus::SideTab,
+                (Focus::Editor, MoveDirection::Down) => self.focused = Focus::Results,
+                (Focus::Tables, MoveDirection::Down) => self.focused = Focus::Results,
+                (Focus::Tables, MoveDirection::Left) => self.focused = Focus::SideTab,
+                (Focus::Results, MoveDirection::Up) if self.tabs.active_item() == " editor " => self.focused = Focus::Editor,
+                (Focus::Results, MoveDirection::Up) if self.tabs.active_item() == " tables " => self.focused = Focus::Tables,
+                (Focus::SideTab, MoveDirection::Right) if self.tabs.active_item() == " editor " => self.focused = Focus::Editor,
+                (Focus::SideTab, MoveDirection::Right) if self.tabs.active_item() == " tables " => self.focused = Focus::Tables,
+                _ => {}
+            }
+        
+            // take current focus
+            self.focused_component().take_focus();
     }
 
 
@@ -228,14 +165,14 @@ impl<'a> App<'a> {
 
     async fn handle_event(&mut self)  {
         if let Ok(event) = crossterm::event::read() {
-            let _ = match event {
+            match event {
                     Event::Key(key) => {
                         let input = (&self.focused, &self.mode, key);
                         let cmd = Command::from(input);
                         self.run_command(cmd).await;
                     },
                     _ => {}
-                };
+                }
         }
     }
 

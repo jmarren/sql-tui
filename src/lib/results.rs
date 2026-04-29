@@ -1,6 +1,6 @@
-use ratatui::{style::Style, widgets::{Block, Borders, Row, Table}};
+use ratatui::{Frame, layout::Rect, style::Style, widgets::{Block, Borders, Row, Table}};
 
-use crate::lib::command::MoveDirection;
+use crate::lib::{Focusable, command::MoveDirection};
 
 
 
@@ -25,19 +25,6 @@ impl <'a>Results<'a> {
         }
     }
 
-    pub fn take_focus(&mut self) {
-        self.block = Block::default()
-                            .title("results")
-                            .borders(Borders::ALL)
-                            .border_style(Style::default().cyan())
-    }
-
-    pub fn lose_focus(&mut self) {
-        self.block = Block::default()
-                            .title("results")
-                            .borders(Borders::ALL);
-    }
-
     pub fn set_results(&mut self, columns: Vec<String>, values: Vec<Vec<String>>) {
         self.columns = columns;
         self.values = values;
@@ -58,6 +45,9 @@ impl <'a>Results<'a> {
     }
 
     pub fn scroll(&mut self, direction: MoveDirection) {
+        if self.values.len() < 1 {
+            return;
+        }
         match direction {
             MoveDirection::Up => self.scroll_up(),
             MoveDirection::Down => self.scroll_down(),
@@ -115,4 +105,26 @@ impl <'a>Results<'a> {
         }
         self.update_table();
     }
+
+    pub fn render(&mut self, frame: &mut Frame, rect: Rect) {
+        frame.render_widget(&self.block, rect);
+        frame.render_widget(&self.table, self.block.inner(rect));
+    }
+}
+
+impl <'a>Focusable for Results<'a> {
+
+    fn take_focus(&mut self) {
+        self.block = Block::default()
+                            .title("results")
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().cyan())
+    }
+
+     fn lose_focus(&mut self) {
+        self.block = Block::default()
+                            .title("results")
+                            .borders(Borders::ALL);
+    }
+
 }

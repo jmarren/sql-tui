@@ -57,9 +57,7 @@ impl From<(&Focus, &Mode, KeyEvent)> for Command {
                             Self::EnterVisualMode
                         },
                         // otherwise insert key
-                        _ => {
-                            Self::InsertKey(key)
-                        },
+                        _ => Self::InsertKey(key)
                     }
             },
             (Focus::Editor, Mode::Visual, KeyEvent{ code: KeyCode::Char('s'), modifiers: KeyModifiers::CONTROL, .. }) => {
@@ -85,9 +83,7 @@ impl From<(&Focus, &Mode, KeyEvent)> for Command {
                         KeyEvent{ code: KeyCode::Char('l'), .. } => {
                             Self::MoveCursor(MoveDirection::Right)
                         }, 
-                        _ => {
-                            Self::TODO
-                        },
+                        _ => Self::TODO,
                 }
             }
         }

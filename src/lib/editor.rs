@@ -1,5 +1,6 @@
-use crate::lib::{command::MoveDirection, highlight::{self, HighlightParser}};
-use ratatui::{ style::Style, text::Line, widgets::{Block, Borders}};
+use crate::lib::{Focusable, command::MoveDirection, highlight::{self, HighlightParser}};
+use crossterm::event::KeyEvent;
+use ratatui::{ Frame, layout::Rect, style::Style, text::Line, widgets::{Block, Borders}};
 use ratatui_textarea::{CursorMove, TextArea};
 
 
@@ -21,18 +22,6 @@ impl <'a>Editor<'a> {
         }
     }
 
-    pub fn take_focus(&mut self) {
-        self.block = Block::default()
-                            .title("editor")
-                            .borders(Borders::ALL)
-                            .border_style(Style::default().cyan())
-    }
-
-    pub fn lose_focus(&mut self) {
-        self.block = Block::default()
-                            .title("editor")
-                            .borders(Borders::ALL);
-    }
 
 
     pub fn line(&self) -> Line<'a> { 
@@ -59,5 +48,32 @@ impl <'a>Editor<'a> {
                             self.textarea.move_cursor(CursorMove::Forward);
                     }
         }
+    }
+
+    pub fn render(&mut self, frame: &mut Frame, rect: Rect) {
+            frame.render_widget(&self.block, rect);
+            frame.render_widget(self.line(), self.block.inner(rect));
+    }
+
+    pub fn input_key(&mut self, key: KeyEvent) {
+            self.textarea.input(key);
+            self.highlighter.highlight(self.textarea.lines().join("\n"));
+    }
+
+}
+
+impl <'a>Focusable for Editor<'a> {
+
+    fn take_focus(&mut self) {
+        self.block = Block::default()
+                            .title("editor")
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().cyan())
+    }
+
+    fn lose_focus(&mut self) {
+        self.block = Block::default()
+                            .title("editor")
+                            .borders(Borders::ALL);
     }
 }

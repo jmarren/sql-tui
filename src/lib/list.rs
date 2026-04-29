@@ -1,6 +1,6 @@
-use ratatui::{style::{Color, Modifier, Style}, text::Line, widgets::{Block, Borders, Paragraph}};
+use ratatui::{Frame, layout::Rect, style::{Color, Modifier, Style}, text::Line, widgets::{Block, Borders, Paragraph}};
 
-use crate::lib::command::MoveDirection;
+use crate::lib::{Focusable, command::MoveDirection};
 
 
 pub struct ListItem<'a> {
@@ -30,7 +30,6 @@ impl <'a>ListItem<'a> {
         }
     }
 
-
     fn set_active(&mut self) {
         self.line = self.line.clone().style(self.active_style);
     }
@@ -38,8 +37,6 @@ impl <'a>ListItem<'a> {
     fn set_inactive(&mut self)  {
         self.line = self.line.clone().style(self.inactive_style);
     }
-
-
 }
 
 
@@ -52,23 +49,33 @@ pub struct List<'a>{
 }
 
 impl <'a>List<'a> {
-    pub fn new(title: &'a str, table_names: Vec<String>) -> List<'a> {
-        let mut tables_vec = Vec::<ListItem>::new();
-
-        for name in table_names {
-            tables_vec.push(ListItem::new(name));
+    pub fn new(title: &'a str, items: Vec<String>) -> List<'a> {
+        let mut items_vec = Vec::<ListItem>::new();
+    
+        // create a vec of ListItems from the provided items 
+        // set first to active and the rest to inactive
+        let mut first = true;
+        for name in items {
+            let mut item = ListItem::new(name);
+            // make first item active and the rest inactive
+            match first {
+                true => {
+                    item.set_active();
+                    first = false;
+                },
+                false => item.set_inactive()
+            }
+            items_vec.push(item);
         }
         let mut list = List {
             block: Block::default().borders(Borders::ALL).title(title),
             title: title,
             paragraph: Paragraph::new(vec![]),
-            line_vec: tables_vec,
+            line_vec: items_vec,
             focused_idx: 0,
         };
 
-        list.line_vec[list.focused_idx as usize].set_active();
         list.update_paragraph();
-
         list
     }
 
@@ -83,19 +90,6 @@ impl <'a>List<'a> {
         self.paragraph = Paragraph::new(self.lines()).block(Block::default())
     }
 
-    pub fn take_focus(&mut self) {
-        self.block = Block::default()
-                            .title(self.title)
-                            .borders(Borders::ALL)
-                            .border_style(Style::default().cyan())
-    }
-
-    pub fn lose_focus(&mut self) {
-        self.block = Block::default()
-                            .title(self.title)
-                            .borders(Borders::ALL);
-    }
-    
     pub fn active_item(&self) -> String {
         self.line_vec[self.focused_idx as usize].name.clone()
     }
@@ -105,7 +99,7 @@ impl <'a>List<'a> {
     pub fn scroll(&mut self, direction: MoveDirection) {
         // set current active tab to inactive
         self.line_vec[self.focused_idx as usize].set_inactive();
-        // increment active index and mod it by length of tabs
+        // increment or decrement focused index
         match direction {
             MoveDirection::Up => {
                 self.focused_idx = self.focused_idx - 1;
@@ -126,6 +120,28 @@ impl <'a>List<'a> {
         self.line_vec[self.focused_idx as usize].set_active();
         // get vec of lines 
         self.update_paragraph();
+    }
+
+    pub fn render(&mut self, frame: &mut Frame, rect: Rect) {
+                frame.render_widget(&self.block, rect);
+                frame.render_widget(&self.paragraph, self.block.inner(rect));
+    }
+    
+}
+
+impl <'a>Focusable for List<'a> {
+
+    fn take_focus(&mut self) {
+        self.block = Block::default()
+                            .title(self.title)
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().cyan())
+    }
+
+     fn lose_focus(&mut self) {
+        self.block = Block::default()
+                            .title(self.title)
+                            .borders(Borders::ALL);
     }
     
 }
