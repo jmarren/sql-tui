@@ -44,17 +44,6 @@ impl <'a>Results<'a> {
                         .rows(rows);
     }
 
-    pub fn scroll(&mut self, direction: MoveDirection) {
-        if self.values.len() < 1 {
-            return;
-        }
-        match direction {
-            MoveDirection::Up => self.scroll_up(),
-            MoveDirection::Down => self.scroll_down(),
-            MoveDirection::Left => self.scroll_left(),
-            MoveDirection::Right => self.scroll_right(),
-        }
-    }
     
     fn scroll_down(&mut self) {
       if let Some(last) = self.values.pop() {
@@ -125,6 +114,18 @@ impl <'a>Focusable for Results<'a> {
         self.block = Block::default()
                             .title("results")
                             .borders(Borders::ALL);
+    }
+
+    fn move_cursor(&mut self, direction: MoveDirection) {
+        if self.values.len() < 1 {
+            return;
+        }
+        match direction {
+            MoveDirection::Up => self.scroll_up(),
+            MoveDirection::Down => self.scroll_down(),
+            MoveDirection::Left => self.scroll_left(),
+            MoveDirection::Right => self.scroll_right(),
+        }
     }
 
 }

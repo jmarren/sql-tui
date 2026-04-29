@@ -95,8 +95,32 @@ impl <'a>List<'a> {
     }
 
 
+
+    pub fn render(&mut self, frame: &mut Frame, rect: Rect) {
+                frame.render_widget(&self.block, rect);
+                frame.render_widget(&self.paragraph, self.block.inner(rect));
+    }
+    
+}
+
+impl <'a>Focusable for List<'a> {
+
+    fn take_focus(&mut self) {
+        self.block = Block::default()
+                            .title(self.title)
+                            .borders(Borders::ALL)
+                            .border_style(Style::default().cyan())
+    }
+
+     fn lose_focus(&mut self) {
+        self.block = Block::default()
+                            .title(self.title)
+                            .borders(Borders::ALL);
+    }
+
+
     // increment active tab and reset paragraph
-    pub fn scroll(&mut self, direction: MoveDirection) {
+    fn move_cursor(&mut self, direction: MoveDirection) {
         // set current active tab to inactive
         self.line_vec[self.focused_idx as usize].set_inactive();
         // increment or decrement focused index
@@ -120,28 +144,6 @@ impl <'a>List<'a> {
         self.line_vec[self.focused_idx as usize].set_active();
         // get vec of lines 
         self.update_paragraph();
-    }
-
-    pub fn render(&mut self, frame: &mut Frame, rect: Rect) {
-                frame.render_widget(&self.block, rect);
-                frame.render_widget(&self.paragraph, self.block.inner(rect));
-    }
-    
-}
-
-impl <'a>Focusable for List<'a> {
-
-    fn take_focus(&mut self) {
-        self.block = Block::default()
-                            .title(self.title)
-                            .borders(Borders::ALL)
-                            .border_style(Style::default().cyan())
-    }
-
-     fn lose_focus(&mut self) {
-        self.block = Block::default()
-                            .title(self.title)
-                            .borders(Borders::ALL);
     }
     
 }

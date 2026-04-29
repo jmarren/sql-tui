@@ -30,6 +30,7 @@ pub enum Focus {
 trait Focusable {
      fn take_focus(&mut self);
      fn lose_focus(&mut self);
+     fn move_cursor(&mut self, direction: MoveDirection);
 }
 
 
@@ -83,7 +84,7 @@ impl<'a> App<'a> {
         self.results.set_results(cols, vals);
     }
 
-    fn focused_component(& mut self) -> Box<&mut dyn Focusable> {
+    fn focused_component(&mut self) -> Box<&mut dyn Focusable> {
         match self.focused {
             Focus::Editor => Box::new(&mut self.editor),
             Focus::Tables => Box::new(&mut self.tables),
@@ -120,21 +121,12 @@ impl<'a> App<'a> {
             match cmd {
                 Command::Exit => self.should_quit = true,
                 Command::ExecuteQuery => self.user_query(self.editor.content()).await,
-                Command::MoveCursor(direction) => self.move_cursor(direction),
+                Command::MoveCursor(direction) => self.focused_component().move_cursor(direction),
                 Command::MoveFocus(direction) => self.move_focus(direction),
                 Command::EnterInsertMode => self.mode = Mode::Insert,
                 Command::EnterVisualMode => self.mode = Mode::Visual,
                 Command::InsertKey(key) => self.editor.input_key(key),
                 _ => {}
-            }
-    }
-
-    fn move_cursor(&mut self, direction: MoveDirection) {
-            match (self.focused, direction) {
-                (Focus::Editor, dir) => self.editor.move_cursor(dir),
-                (Focus::SideTab, dir) => self.tabs.scroll(dir),
-                (Focus::Results, dir) => self.results.scroll(dir),
-                (Focus::Tables, dir) => self.tables.scroll(dir),
             }
     }
 

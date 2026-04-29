@@ -33,22 +33,6 @@ impl <'a>Editor<'a> {
         self.textarea.lines().join("\n")
     }
 
-    pub fn move_cursor(&mut self, direction: MoveDirection) {
-        match direction {
-                    MoveDirection::Up => {
-                            self.textarea.move_cursor(CursorMove::Up);
-                    },
-                    MoveDirection::Down => {
-                            self.textarea.move_cursor(CursorMove::Down);
-                    },
-                    MoveDirection::Left => {
-                            self.textarea.move_cursor(CursorMove::Back);
-                    },
-                    MoveDirection::Right => {
-                            self.textarea.move_cursor(CursorMove::Forward);
-                    }
-        }
-    }
 
     pub fn render(&mut self, frame: &mut Frame, rect: Rect) {
             frame.render_widget(&self.block, rect);
@@ -75,5 +59,22 @@ impl <'a>Focusable for Editor<'a> {
         self.block = Block::default()
                             .title("editor")
                             .borders(Borders::ALL);
+    }
+
+    fn move_cursor(&mut self, direction: MoveDirection) {
+        match direction {
+                    MoveDirection::Up => {
+                            self.textarea.move_cursor(CursorMove::Up);
+                    },
+                    MoveDirection::Down => {
+                            self.textarea.move_cursor(CursorMove::Down);
+                    },
+                    MoveDirection::Left => {
+                            self.textarea.move_cursor(CursorMove::Back);
+                    },
+                    MoveDirection::Right => {
+                            self.textarea.move_cursor(CursorMove::Forward);
+                    }
+        }
     }
 }
