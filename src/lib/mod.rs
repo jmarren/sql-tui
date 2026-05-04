@@ -53,8 +53,6 @@ struct App<'a> {
 }
 
 
-
-
 impl<'a> App<'a> {
     async fn new(terminal: &'a mut DefaultTerminal) -> App<'a> {
     
@@ -86,14 +84,14 @@ impl<'a> App<'a> {
         self.results.set_results(cols, vals);
     }
 
-    fn focused_component(&mut self) -> Box<&mut dyn Focusable> {
-        match self.focused {
-            Focus::Editor => Box::new(&mut self.editor),
-            Focus::Tables => Box::new(&mut self.tables.list),
-            Focus::SideTab => Box::new(&mut self.tabs.list),
-            Focus::Results => Box::new(&mut self.results),
-        }
-    }
+    // fn focused_component(&mut self) -> Box<&mut dyn Focusable> {
+    //     match self.focused {
+    //         Focus::Editor => Box::new(&mut self.editor),
+    //         Focus::Tables => Box::new(&mut *self.tables.list),
+    //         Focus::SideTab => Box::new(&*self.tabs.list.borrow_mut()),
+    //         Focus::Results => Box::new(&mut self.results),
+    //     }
+    // }
     
 
     fn draw(&mut self) {
@@ -103,7 +101,7 @@ impl<'a> App<'a> {
         let h_layout = self.outer_layout.split(frame.area());
 
         // // render side tab bar
-        self.tabs.list.render(frame, h_layout[0]);
+        self.tabs.list.borrow_mut().render(frame, h_layout[0]);
 
         // create layout
         let layout = self.inner_layout.split(h_layout[1]);
@@ -113,7 +111,7 @@ impl<'a> App<'a> {
         if self.tabs.active_tab() == " editor " {
             self.editor.render(frame, layout[0]);
         } else {
-            self.tables.list.render(frame, layout[0]);
+            self.tables.list.borrow_mut().render(frame, layout[0]);
         }
 
         });
@@ -123,12 +121,22 @@ impl<'a> App<'a> {
         self.tables.expand_focused();
     }
 
+    fn move_cursor(&mut self, dir: MoveDirection) {
+
+            match self.focused {
+                Focus::Editor => self.editor.move_cursor(dir),
+                Focus::Tables => self.tables.list.borrow_mut().move_cursor(dir),
+                Focus::SideTab => self.tabs.list.borrow_mut().move_cursor(dir),
+                Focus::Results => self.results.move_cursor(dir),
+            }
+    }
+
 
     async fn run_command(&mut self, cmd: command::Command) {
             match cmd {
                 Command::Exit => self.should_quit = true,
                 Command::ExecuteQuery => self.user_query(self.editor.content()).await,
-                Command::MoveCursor(direction) => self.focused_component().move_cursor(direction),
+                Command::MoveCursor(direction) => self.move_cursor(direction),
                 Command::MoveFocus(direction) => self.move_focus(direction),
                 Command::EnterInsertMode => self.mode = Mode::Insert,
                 Command::EnterVisualMode => self.mode = Mode::Visual,
@@ -141,7 +149,16 @@ impl<'a> App<'a> {
 
     fn move_focus(&mut self, direction: MoveDirection) {
             // lose current focus
-            self.focused_component().lose_focus();
+            // self.focused_component().lose_focus();
+
+        {
+            match self.focused {
+                Focus::Editor => self.editor.lose_focus(),
+                Focus::Tables => self.tables.list.borrow_mut().lose_focus(),
+                Focus::SideTab => self.tabs.list.borrow_mut().lose_focus(),
+                Focus::Results => self.results.lose_focus(),
+            }
+        }
 
             // set new focus
             match (&self.focused, direction) {
@@ -157,8 +174,15 @@ impl<'a> App<'a> {
                 _ => {}
             }
         
+            {
             // take current focus
-            self.focused_component().take_focus();
+            match self.focused {
+                Focus::Editor => self.editor.take_focus(),
+                Focus::Tables => self.tables.list.borrow_mut().take_focus(),
+                Focus::SideTab => self.tabs.list.borrow_mut().take_focus(),
+                Focus::Results => self.results.take_focus(),
+            }
+            }
     }
 
     async fn handle_event(&mut self)  {
@@ -205,6 +229,7 @@ fn make_inner() -> Layout {
                 Constraint::Percentage(50)
             ])
 }
+
 
 
 #[tokio::main]
